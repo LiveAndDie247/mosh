@@ -11,11 +11,12 @@ import { Daisy } from "./daisy.js";
 import { buildMoshAudio } from "./wav.js";
 import { Field, patternImage } from "./field.js";
 import { Logo } from "./logo.js";
+import { Grid } from "./grid.js";
 import { sfx, audio } from "./sfx.js";
 import { PadMode } from "./pads.js";
 import { GifSheet, loadIndex, randomGif, randomVibe, prepareGif, gifURL, gifArgs } from "./gif.js";
 
-const BUILD = 16;                         // shown in the LOG, so a screenshot tells which version ran
+const BUILD = 17;                         // shown in the LOG, so a screenshot tells which version ran
 
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
@@ -98,6 +99,7 @@ let swipe = [1, 1];                       // last drag direction: the logo burst
 const field = new Field($("bg"), { onSwipe: (dx, dy) => { swipe = [dx, dy]; } });
 field.setImage(patternImage());
 const logo = new Logo($("logo"));
+new Grid($("grid"));
 
 // MOSH is the "pad hit": a shockwave through the background and a hard burst on the logo.
 // While it's held the logo keeps melting and never heals.

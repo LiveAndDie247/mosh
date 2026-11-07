@@ -15,6 +15,8 @@
 <!-- Behind everything, dim: the datamosh field, then (after a mosh) the moshed video -->
 <canvas id="bg" aria-hidden="true"></canvas>
 <canvas id="bgmosh" aria-hidden="true" hidden></canvas>
+<!-- Over it: the liveanddie.xyz grid, cube, flash and vignette (grid.js) -->
+<canvas id="grid" aria-hidden="true"></canvas>
 
 <main>
   <header>
@@ -22,6 +24,7 @@
     <canvas id="logo" aria-hidden="true"></canvas>
     <p class="sub">I-FRAME REMOVAL // REAL DATAMOSH</p>
   </header>
+  <div class="hr">* * *</div>
 
   <section class="pick">
     <div class="slot">
@@ -81,16 +84,15 @@
   <video id="out" controls playsinline loop hidden></video>
   <button id="save" class="save" hidden>SAVE / SHARE</button>
 
+  <div class="hr">* * *</div>
   <!-- Everything else: collapsible, closed by default, remembered -->
   <details class="sec" data-sec="pads"><summary>PADS</summary><div id="p-pads" class="sec-body"></div></details>
   <details class="sec" data-sec="fx"><summary>FX</summary><div id="p-fx" class="sec-body"></div></details>
   <details class="sec" data-sec="chain"><summary>CHAIN</summary><div id="daisy" class="sec-body daisy"></div></details>
   <details class="sec log" data-sec="log"><summary>LOG</summary><pre id="log"></pre></details>
 
-  <p class="foot">Runs entirely on your phone. Nothing is uploaded.<br>First run downloads the ffmpeg engine (~31 MB).</p>
+  <p class="foot"><span>MOSH ¤ runs entirely on your phone ¤ nothing is uploaded</span><br>First run downloads the ffmpeg engine (~31 MB).</p>
 </main>
-<div class="scan" aria-hidden="true"></div>
-<div class="noise" aria-hidden="true"></div>
 <script type="module" src="app.js"></script>
 </body>
 </html>

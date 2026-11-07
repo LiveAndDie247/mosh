@@ -33,11 +33,20 @@ export class Logo {
   drawClean() {
     const g = this.ctx;
     g.clearRect(0, 0, W, H);
-    g.fillStyle = "#fff";
-    g.font = 'bold 124px "Times New Roman", Times, serif';
+    // liveanddie.xyz type: bold Times, red (#ff0000), with the site's hard black outline
+    // (.ol: 1px all round + a 2px 2px drop), scaled up to the logo's size
+    g.font = 'bold 124px "Times New Roman", Times, "Liberation Serif", serif';
     g.textAlign = "center";
     g.textBaseline = "alphabetic";
-    g.fillText("MOSH", W / 2, H - 24);
+    const x = W / 2, y = H - 26;
+    g.fillStyle = "#000";
+    g.fillText("MOSH", x + 7, y + 7);                 // the drop
+    g.lineJoin = "miter";
+    g.lineWidth = 8;
+    g.strokeStyle = "#000";
+    g.strokeText("MOSH", x, y);                       // the outline
+    g.fillStyle = "#ff0000";
+    g.fillText("MOSH", x, y);
     return new Uint32Array(g.getImageData(0, 0, W, H).data.buffer.slice(0));
   }
 
@@ -92,7 +101,7 @@ export class Logo {
     if (!on) this.t = Math.min(this.t, IDLE - 1.5);      // let go: it re-forms soon after
   }
 
-  // Each block copies its pixels from (x - v); moved pixels drift purple or green
+  // Each block copies its pixels from (x - v); moved pixels drift toward the site's blue or red
   advect() {
     const src = this.work, dst = this.next;
     dst.set(src);
@@ -101,7 +110,7 @@ export class Logo {
       const m = Math.abs(vx) + Math.abs(vy);
       if (m < 0.15) continue;
       const ox = Math.round(vx), oy = Math.round(vy);
-      const tint = Math.min(26, m * 5) | 0, purple = (bx + by) & 1;
+      const tint = Math.min(26, m * 5) | 0, blue = (bx + by) & 1;
       for (let yy = 0; yy < B; yy++) {
         const y = by * B + yy, sy = Math.min(H - 1, Math.max(0, y - oy));
         for (let xx = 0; xx < B; xx++) {
@@ -110,7 +119,7 @@ export class Logo {
           const a = px >>> 24;
           if (a > 16 && tint) {
             let r = px & 255, g = (px >>> 8) & 255, b = (px >>> 16) & 255;
-            if (purple) { r += tint; b += tint; g -= tint; } else { g += tint; r -= tint; b -= tint; }
+            if (blue) { b += tint * 2; r -= tint; g -= tint; } else { r += tint; g -= tint; b -= tint; }
             r = r < 0 ? 0 : r > 255 ? 255 : r;
             g = g < 0 ? 0 : g > 255 ? 255 : g;
             b = b < 0 ? 0 : b > 255 ? 255 : b;
