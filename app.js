@@ -100,7 +100,12 @@ async function loadFFmpeg() {
       const f = dl.js * 0.02 + dl.wasm * 0.98;
       setProgress(f, `LOADING ENGINE ${Math.round(f * 100)}%`);
     };
-    const track = key => ({ total, received }) => { if (total > 0) { dl[key] = received / total; show(); } };
+    // jsDelivr may not send Content-Length (compressed): then show megabytes instead of a percentage
+    const WASM_MB = 32;
+    const track = key => ({ total, received }) => {
+      if (total > 0) { dl[key] = received / total; show(); }
+      else if (key === "wasm") setProgress(Math.min(0.99, received / (WASM_MB * 1048576)), `LOADING ENGINE ${(received / 1048576).toFixed(1)} MB`);
+    };
     setProgress(0, "LOADING ENGINE");
     const coreURL = await toBlobURL(`${CORE_BASE}/ffmpeg-core.js`, "text/javascript", true, track("js"));
     const wasmURL = await toBlobURL(`${CORE_BASE}/ffmpeg-core.wasm`, "application/wasm", true, track("wasm"));
