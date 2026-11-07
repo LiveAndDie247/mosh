@@ -4,14 +4,15 @@
 import { FFmpeg } from "./vendor/ffmpeg/index.js";
 import { fetchFile } from "./vendor/util/index.js";
 import { moshAvi } from "./mosh.js";
-import { encodeArgs, decodeArgs, targetSize, MAX_SECONDS } from "./pipeline.js";
+import { encodeArgs, decodeArgs, targetSize, framesOf, MAX_SECONDS } from "./pipeline.js";
+import { buildMoshAudio } from "./wav.js";
 import { Field, patternImage } from "./field.js";
 import { Logo } from "./logo.js";
 import { Paint } from "./paint.js";
 import { sfx, audio } from "./sfx.js";
 import { PadMode } from "./pads.js";
 
-const BUILD = 6;                          // shown in the LOG, so a screenshot tells which version ran
+const BUILD = 7;                          // shown in the LOG, so a screenshot tells which version ran
 
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
@@ -88,7 +89,7 @@ let stampSource = null;                   // Clip B's frame (or A's, or the patt
 let swipe = [1, 1];                       // last drag direction: the logo bursts this way
 field.setImage(pattern);
 const logo = new Logo($("logo"));
-new Paint({
+const paint = new Paint({
   field,
   onSwipe: (dx, dy) => { swipe = [dx, dy]; },
   getStamp: () => stampSource || pattern,
@@ -105,9 +106,10 @@ ui.mosh.addEventListener("pointerdown", () => {
 });
 for (const t of ["pointerup", "pointercancel", "pointerleave"]) ui.mosh.addEventListener(t, () => logo.hold(false));
 
-// LIVE PADS: every pad hit is a shockwave + a logo burst; their MOSH keeps the logo melting
-new PadMode($("pads"), {
-  getClips: () => clips,
+// LIVE PADS: the finished mosh lands here. Every pad hit is a shockwave + a logo burst;
+// their MOSH keeps the logo melting; the paint tools work on the pad screen.
+const pads = new PadMode($("pads"), {
+  paint,
   loadFFmpeg: async () => {
     if (busy) throw new Error("wait for the render to finish first");
     await loadFFmpeg();
@@ -253,21 +255,31 @@ async function doMosh() {
     const joined = await ffmpeg.readFile("joined.avi");
     await rm("joined.avi");
     const { data, stats } = moshAvi(joined, { bloom: +ui.bloom.value, bloomAt: +ui.bloomAt.value / 100 });
-    log(`mosh: ${JSON.stringify(stats)}`);
+    const { order, ...summary } = stats;
+    log(`mosh: ${JSON.stringify(summary)}`);
     if (!stats.removedI) log("note: no keyframe found at the cut; the result may barely mosh");
     await ffmpeg.writeFile("moshed.avi", data);
 
-    // 5. back to a normal H.264 MP4
-    await run(decodeArgs("moshed.avi", "mosh.mp4"), 0.52, 0.99, "RENDERING");
-    await rm("moshed.avi");
+    // The sound, frame by frame in the same order as the moshed picture (bloom stutters too)
+    let wav = null;
+    try {
+      setProgress(0.51, "SOUND");
+      await ffmpeg.writeFile("mosh.wav", await buildMoshAudio(audio(), clips.A.file, clips.B.file, framesOf(keepA), order));
+      wav = "mosh.wav";
+    } catch (e) {
+      log(`no sound: ${e.message || e}`);
+    }
+
+    // 5. back to a normal H.264 MP4 (+ AAC sound)
+    await run(decodeArgs("moshed.avi", "mosh.mp4", wav), 0.52, 0.99, "RENDERING");
+    await rm("moshed.avi"); await rm("mosh.wav");
     const mp4 = await ffmpeg.readFile("mosh.mp4");
     await rm("mosh.mp4");
 
     if (result) URL.revokeObjectURL(result.url);
     const blob = new Blob([mp4.buffer], { type: "video/mp4" });
-    result = { blob, url: URL.createObjectURL(blob), name: `mosh-${Date.now()}.mp4` };
-    ui.out.src = result.url; ui.out.hidden = false; ui.save.hidden = false;
-    ui.out.play().catch(() => {});
+    result = { blob, url: URL.createObjectURL(blob), name: `mosh-${Date.now()}.mp4`, w: size.w, h: size.h };
+    ui.out.src = result.url; ui.save.hidden = false;
     setProgress(1, "DONE");
   } catch (e) {
     console.error(e);
@@ -277,6 +289,15 @@ async function doMosh() {
   } finally {
     busy = false; document.body.classList.remove("busy");
     ui.mosh.disabled = !clips.A || !clips.B;
+  }
+  // The finished mosh goes onto the pads (the pad screen is the player). If that fails,
+  // fall back to the plain video player.
+  if (result && ui.out.src === result.url && !result.onPads) {
+    result.onPads = true;
+    const ok = await pads.loadMoshed(new File([result.blob], result.name, { type: "video/mp4" }), result.w, result.h);
+    ui.out.hidden = ok;
+    if (ok) $("pads").scrollIntoView({ behavior: "smooth", block: "start" });
+    else ui.out.play().catch(() => {});
   }
 }
 

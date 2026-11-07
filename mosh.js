@@ -83,14 +83,14 @@ export function moshAvi(input, { bloom = 0, bloomAt = 0 } = {}) {
   for (const c of chunks) {
     if (/^ix[0-9]{2}$/.test(c.id)) continue;
     if (!isVideo(c.id)) { out.push({ ...c, key: false }); continue; }
-    frames++;
+    const fi = frames++;                                        // original frame number
     const type = c.size ? vopType(u8, c.o + 8, c.o + 8 + c.size) : -1;
     if (type === 0) {
-      if (!firstI) { firstI = true; out.push({ ...c, key: true }); }
+      if (!firstI) { firstI = true; out.push({ ...c, key: true, fi }); }
       else { removed++; if (cut < 0) cut = out.length; }       // gone: the next P-frames land on Clip A
       continue;
     }
-    out.push({ ...c, key: false, p: type === 1 });
+    out.push({ ...c, key: false, p: type === 1, fi });
   }
   if (!firstI) throw new Error("No MPEG-4 I-frame found (was it encoded with -c:v mpeg4?)");
 
@@ -155,6 +155,10 @@ export function moshAvi(input, { bloom = 0, bloomAt = 0 } = {}) {
 
   return {
     data: res,
-    stats: { frames, kept: videoOut, removedI: removed, cutFrame: cut, bloomFrame, bloomCopies: bloomFrame >= 0 ? bloom : 0 },
+    stats: {
+      frames, kept: videoOut, removedI: removed, cutFrame: cut, bloomFrame, bloomCopies: bloomFrame >= 0 ? bloom : 0,
+      // For each output frame, the original frame it came from (so the sound can follow the picture)
+      order: out.filter(c => isVideo(c.id)).map(c => c.fi),
+    },
   };
 }

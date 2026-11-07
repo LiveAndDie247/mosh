@@ -91,9 +91,20 @@ export class Paint {
     this.down = null;
     this.v = null;
     this.lastDir = [-1, 0];
+    this.surfaces = [];         // [{ canvas, target }]: the background field, the pad screen
+    this.lastTarget = field;    // WIPE acts on whatever you touched last
+    this.raf = 0;
     this.build();
-    this.bindPointer();
-    field.onFrame = dt => this.tick(dt);
+    this.addSurface(field.canvas, field);
+  }
+
+  // Anything with the field's tool API (smear, swirl, …, snapshot, restore) can be painted on
+  addSurface(canvas, target) {
+    this.surfaces.push({ canvas, target });
+    canvas.style.touchAction = this.open ? "none" : "pan-y";
+    canvas.addEventListener("pointerdown", e => this.onDown(e, canvas, target));
+    canvas.addEventListener("pointermove", e => this.onMove(e));
+    for (const t of ["pointerup", "pointercancel", "lostpointercapture"]) canvas.addEventListener(t, e => this.onUp(e));
   }
 
   // ---------- toolbar ----------
@@ -130,9 +141,9 @@ export class Paint {
     const wipe = el("button", "bevel big-btn", `${img("wipe")}<span>WIPE</span>`);
     wipe.addEventListener("click", () => {
       audio();
-      const [dx, dy] = this.lastDir;
-      this.pushUndo();
-      this.field.wipe(dx, dy);
+      const [dx, dy] = this.lastDir, target = this.lastTarget?.ok ? this.lastTarget : this.field;
+      this.pushUndo(target);
+      target.wipe(dx, dy);
       sfx.whoosh();
     });
     const undo = el("button", "bevel big-btn", `${img("undo")}<span>UNDO</span>`);
@@ -156,8 +167,8 @@ export class Paint {
     this.bar.classList.toggle("open", open);
     document.body.classList.toggle("painting", open);
     this.tab.setAttribute("aria-expanded", String(open));
-    // Open: the whole background is a canvas. Closed: vertical drags still scroll the page.
-    this.field.canvas.style.touchAction = open ? "none" : "pan-y";
+    // Open: the background and the pad screen are canvases. Closed: vertical drags still scroll.
+    for (const s of this.surfaces) s.canvas.style.touchAction = open ? "none" : "pan-y";
   }
 
   sync() {
@@ -169,17 +180,17 @@ export class Paint {
   }
 
   // ---------- undo ----------
-  pushUndo() {
-    const s = this.field.snapshot();
-    if (!s) return;
-    this.undoStack.push(s);
+  pushUndo(target = this.field) {
+    const snap = target.snapshot();
+    if (!snap) return;
+    this.undoStack.push({ target, snap });
     if (this.undoStack.length > UNDO_MAX) this.undoStack.shift();
   }
   undo() {
     audio();
     sfx.nope();
-    const s = this.undoStack.pop();
-    if (s) this.field.restore(s);
+    const u = this.undoStack.pop();
+    if (u) u.target.restore(u.snap);
   }
 
   // ---------- tilt (optional gentle smear) ----------
@@ -211,27 +222,29 @@ export class Paint {
   get radius() { return this.open ? SIZES[this.size] : SIZES[1]; }
   get activeTool() { return this.open ? this.tool : "smear"; }   // closed: plain smearing
 
-  bindPointer() {
-    const c = this.field.canvas;
-    c.style.touchAction = "pan-y";
-    c.addEventListener("pointerdown", e => this.onDown(e));
-    c.addEventListener("pointermove", e => this.onMove(e));
-    for (const t of ["pointerup", "pointercancel", "lostpointercapture"]) c.addEventListener(t, e => this.onUp(e));
-  }
-
-  onDown(e) {
-    if (!this.field.ok || this.down) return;
+  onDown(e, canvas, target) {
+    if (!target.ok || this.down) return;
     audio();
-    try { this.field.canvas.setPointerCapture(e.pointerId); } catch {}
-    this.pushUndo();
+    try { canvas.setPointerCapture(e.pointerId); } catch {}
+    this.pushUndo(target);
+    this.lastTarget = target;
     const x = e.clientX, y = e.clientY, tool = this.activeTool;
-    this.down = { id: e.pointerId, x, y, t: performance.now(), tool };
-    if (tool === "explode") { this.field.explode(x, y, this.radius); sfx.boom(); }
+    this.down = { id: e.pointerId, x, y, t: performance.now(), tool, target };
+    if (tool === "explode") { target.explode(x, y, this.radius); sfx.boom(); }
     if (tool === "stamp") {
       const src = this.getStamp?.();
-      if (src) { this.field.stamp(src, x, y, this.radius * 3); sfx.boing(); } else sfx.nope();
+      if (src) { target.stamp(src, x, y, this.radius * 3); sfx.boing(); } else sfx.nope();
     }
     this.v = voice(tool);
+    // Tools that keep working while the finger is held still run every frame
+    let last = performance.now();
+    const loop = now => {
+      if (!this.down) { this.raf = 0; return; }
+      this.raf = requestAnimationFrame(loop);
+      this.tick(Math.min(0.05, (now - last) / 1000));
+      last = now;
+    };
+    if (!this.raf) this.raf = requestAnimationFrame(loop);
   }
 
   onMove(e) {
@@ -239,8 +252,8 @@ export class Paint {
     if (!d || e.pointerId !== d.id) return;
     const x = e.clientX, y = e.clientY, now = performance.now();
     const dx = x - d.x, dy = y - d.y, dt = Math.max(1, now - d.t) / 1000;
-    if (d.tool === "smear") this.field.smear(x, y, dx, dy, this.radius);
-    if (d.tool === "shatter") this.field.shatter(x, y, this.radius);
+    if (d.tool === "smear") d.target.smear(x, y, dx, dy, this.radius);
+    if (d.tool === "shatter") d.target.shatter(x, y, this.radius);
     if (Math.hypot(dx, dy) > 3) { this.lastDir = [dx, dy]; this.onSwipe?.(dx, dy); }
     this.v?.update(Math.hypot(dx, dy) / dt, y / innerHeight);
     d.x = x; d.y = y; d.t = now;
@@ -250,7 +263,7 @@ export class Paint {
   tick(dt) {
     const d = this.down;
     if (!d) return;
-    const f = this.field, r = this.radius;
+    const f = d.target, r = this.radius;
     if (d.tool === "swirl") f.swirl(d.x, d.y, r);
     else if (d.tool === "melt") f.melt(d.x, d.y, r);
     else if (d.tool === "pixelate") f.pixelate(d.x, d.y, r, dt);

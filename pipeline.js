@@ -30,11 +30,13 @@ export function encodeArgs({ inA, inB, keepA, w, h, out = "joined.avi" }) {
   ];
 }
 
-// Step 5: decode the moshed AVI back to a normal H.264 MP4 the phone can play and share
-export function decodeArgs(inp = "moshed.avi", out = "mosh.mp4") {
+// Step 5: decode the moshed AVI back to a normal H.264 MP4 the phone can play and share,
+// with the sound (a WAV built to match the moshed frames) if there is one
+export function decodeArgs(inp = "moshed.avi", out = "mosh.mp4", wav = null) {
+  const video = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"];
+  if (!wav) return ["-i", inp, ...video, "-movflags", "+faststart", "-an", out];
   return [
-    "-i", inp,
-    "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
-    "-movflags", "+faststart", "-an", out,
+    "-i", inp, "-i", wav, "-map", "0:v", "-map", "1:a",
+    ...video, "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", out,
   ];
 }

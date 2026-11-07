@@ -7,7 +7,7 @@
 //   BLOOM (hold): freeze the motion so it keeps re-applying
 import { audio } from "./sfx.js";
 import { LiveEngine } from "./live.js";
-import { decodeClip, padSize, PAD_FPS, PAD_MAX } from "./clipdecode.js";
+import { decodeClip, padSize, PAD_FPS } from "./clipdecode.js";
 
 const REPEATS = [["OFF", 0], ["1/4", 1], ["1/8", 1 / 2], ["1/16", 1 / 4], ["1/32", 1 / 8],
   ["1/4T", 2 / 3], ["1/8T", 1 / 3], ["1/16T", 1 / 6], ["1/32T", 1 / 12]];   // length in beats
@@ -17,9 +17,9 @@ const ROLL_TIME = 2.0;        // seconds for ROLL to go from 1/4 to 1/32
 export class PadMode {
   constructor(root, opts) {
     this.root = root;
-    this.o = opts;            // { getClips, loadFFmpeg, log, onHit, onMosh }
+    this.o = opts;            // { loadFFmpeg, log, onHit, onMosh, paint }
     this.clips = {};
-    this.sel = "B";
+    this.sel = "M";           // the finished mosh
     this.voice = null;
     this.pitch = 1; this.gate = 0.6; this.bpm = 120; this.repeatIdx = 0;
     this.holdOn = false; this.revOn = false;
@@ -33,48 +33,47 @@ export class PadMode {
   // ---------- before loading ----------
   shell() {
     this.root.innerHTML = `
-      <div class="pads-head"><b>LIVE PADS</b><button class="pads-load">LOAD PADS</button></div>
-      <p class="pads-msg">Loads your clips (first ${PAD_MAX} s, small) so the pads play instantly. Play A, hold MOSH, then play B.</p>`;
-    this.root.querySelector(".pads-load").addEventListener("click", () => this.load());
+      <div class="pads-head"><b>LIVE PADS</b></div>
+      <p class="pads-msg">Hit MOSH above: the finished mosh lands here on the pads, with its sound. The paint tools work on it too.</p>`;
     this.msg = this.root.querySelector(".pads-msg");
   }
+  status(text) { if (this.msg) this.msg.textContent = text; }
 
-  async load() {
-    const all = this.o.getClips();
-    const files = Object.entries(all).filter(([, v]) => v);
-    if (!files.length) { this.msg.textContent = "Pick Clip A and/or Clip B first."; return; }
-    const btn = this.root.querySelector(".pads-load");
-    btn.disabled = true;
+  // Load the finished mosh (an MP4 file) onto the pads. Returns true if it worked.
+  async loadMoshed(file, w, h) {
+    if (this.loading) return false;
+    this.loading = true;
     try {
-      this.ac = audio();
-      if (!this.ac) throw new Error("Web Audio isn't available");
-      this.out = this.ac.createGain();
-      this.out.gain.value = 0.9;
-      this.out.connect(this.ac.destination);
-      this.msg.textContent = "Loading engine…";
-      const ff = await this.o.loadFFmpeg();
-      const first = all.A || all.B;
-      const size = padSize(first.width, first.height);
-      const clips = {};
-      for (const [k, c] of files) {
-        this.msg.textContent = `Decoding clip ${k}…`;
-        clips[k] = await decodeClip(ff, c.file, size, this.ac, p => { this.msg.textContent = `Decoding clip ${k}… ${Math.round(p * 100)}%`; });
+      if (!this.ac) {
+        this.ac = audio();
+        if (!this.ac) throw new Error("Web Audio isn't available");
+        this.out = this.ac.createGain();
+        this.out.gain.value = 0.9;
+        this.out.connect(this.ac.destination);
       }
-      this.build();
-      this.engine.setClips(clips);
-      for (const c of Object.values(clips)) c.frames = null;   // they live on the GPU now
-      this.clips = clips;
-      this.sel = clips.B ? "B" : "A";
-      this.shownSrc = this.sel; this.shownIdx = 0;
+      if (this.voice) this.stopVoice();
+      this.status("Loading the mosh onto the pads…");
+      const ff = await this.o.loadFFmpeg();
+      const clip = await decodeClip(ff, file, padSize(w, h), this.ac, p => this.status(`Loading onto the pads… ${Math.round(p * 100)}%`));
+      if (!this.engine) this.build();
+      this.engine.setClips({ M: clip });
+      clip.frames = null;                                       // it lives on the GPU now
+      this.clips = { M: clip };
+      this.sel = "M";
+      this.shownSrc = "M"; this.shownIdx = 0;
       this.syncUI();
       this.loaded = true;
+      this.status(`${clip.n} frames · ${(clip.duration).toFixed(1)} s${clip.silent ? " · no sound" : ""}`);
       this.start();
-      this.o.log?.(`pads: ${Object.entries(clips).map(([k, c]) => `${k} ${c.n} frames ${c.w}x${c.h}${c.silent ? " (no audio)" : ""}`).join(", ")}`);
+      this.o.log?.(`pads: mosh loaded, ${clip.n} frames ${clip.w}x${clip.h}${clip.silent ? " (no audio)" : ""}`);
+      return true;
     } catch (e) {
       console.error(e);
-      this.shell();
-      this.msg.textContent = `Couldn't load the pads: ${e.message || e}`;
+      this.status(`Couldn't load the pads: ${e.message || e}`);
       this.o.log?.(`pads error: ${e.message || e}`);
+      return false;
+    } finally {
+      this.loading = false;
     }
   }
 
@@ -82,7 +81,7 @@ export class PadMode {
   build() {
     const r = this.root;
     r.innerHTML = `
-      <div class="pads-head"><b>LIVE PADS</b><span class="seg src"></span></div>
+      <div class="pads-head"><b>LIVE PADS</b><span class="pads-msg"></span></div>
       <canvas class="live-screen"></canvas>
       <div class="pad-grid"></div>
       <div class="fn-row"></div>
@@ -92,18 +91,10 @@ export class PadMode {
         <label><span>PITCH</span><output class="o-pitch"></output><input type="range" class="f-pitch" min="-100" max="100" value="0"></label>
         <label><span>BPM</span><output class="o-bpm"></output><input type="range" class="f-bpm" min="60" max="180" value="120"></label>
       </div>`;
-    this.engine = new LiveEngine(r.querySelector(".live-screen"));
-
-    // A / B source
-    const src = r.querySelector(".src");
-    this.srcBtns = {};
-    for (const k of ["A", "B"]) {
-      const b = document.createElement("button");
-      b.textContent = k;
-      b.addEventListener("click", () => { if (this.clips[k]) { this.sel = k; this.syncUI(); } });
-      src.append(b);
-      this.srcBtns[k] = b;
-    }
+    this.msg = r.querySelector(".pads-msg");
+    const screen = r.querySelector(".live-screen");
+    this.engine = new LiveEngine(screen);
+    this.o.paint?.addSurface(screen, this.engine);          // the side tools paint on the pad screen too
 
     // 16 pads
     const grid = r.querySelector(".pad-grid");
@@ -169,7 +160,6 @@ export class PadMode {
   }
 
   syncUI() {
-    for (const [k, b] of Object.entries(this.srcBtns || {})) { b.classList.toggle("on", k === this.sel); b.disabled = !this.clips[k]; }
     (this.repBtns || []).forEach((b, i) => b.classList.toggle("on", i === this.repeatIdx));
     this.light();
   }

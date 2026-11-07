@@ -27,7 +27,7 @@ main > * { pointer-events: auto; }
 
 /* Logo: Times New Roman bold, really moshed on a canvas */
 header { text-align: center; padding-top: 6px; }
-#logo { display: block; width: min(100%, 420px); height: auto; margin: 0 auto; image-rendering: pixelated; }
+#logo { display: block; width: min(60%, 240px); height: auto; margin: 0 auto; image-rendering: pixelated; }
 .sub { color: var(--dim); font-size: 11px; margin-top: 2px; }
 
 /* Clip pickers */

@@ -10,6 +10,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { encodeArgs, decodeArgs, targetSize, FPS } from "../pipeline.js";
 import { moshAvi, parseAvi, vopType } from "../mosh.js";
+import { encodeWav } from "../wav.js";
 
 const coreDir = process.argv[2] || "/tmp/mosh-dl/core/package/dist/esm";
 const coreJs = path.join(coreDir, "ffmpeg-core.js");
@@ -45,7 +46,9 @@ const hasMpeg4 = /^\s*V\S*\s+mpeg4\s/m.test(enc);
 const hasX264 = /^\s*V\S*\s+libx264\s/m.test(enc);
 console.log("mpeg4 encoder:", hasMpeg4 ? "YES" : "NO");
 console.log("libx264 encoder:", hasX264 ? "YES" : "NO");
-if (!hasMpeg4 || !hasX264) fail("the core is missing a required encoder");
+const hasAac = /^\s*A\S*\s+aac\s/m.test(enc);
+console.log("aac encoder:", hasAac ? "YES" : "NO");
+if (!hasMpeg4 || !hasX264 || !hasAac) fail("the core is missing a required encoder");
 
 // --- 2. synthetic phone clips (gray raw frames → H.264 MP4, like a camera file) ---
 const W = 480, Hh = 270, nA = 45, nB = 60;            // A: 1.5 s, B: 2 s
@@ -88,11 +91,25 @@ const { data: moshed, stats } = moshAvi(joined, { bloom: BLOOM, bloomAt: 0.25 })
 console.log("mosh stats:", JSON.stringify(stats));
 if (stats.removedI !== 1) fail("expected exactly one I-frame removed");
 if (stats.kept !== types.length - 1 + BLOOM) fail("frame count after mosh is wrong");
+if (stats.order.length !== stats.kept) fail("frame order map has the wrong length");
+if (stats.order[nA] !== nA + 1) fail(`after the cut, output frame ${nA} should come from original frame ${nA + 1} (B's I-frame is gone)`);
 core.FS.writeFile("moshed.avi", moshed);
 
-if (run(...decodeArgs("moshed.avi", "mosh.mp4")) !== 0) fail("decode to MP4 failed");
+// The sound: a tone per source clip, laid out in the moshed frame order (as wav.js does)
+const sr = 48000, per = sr / FPS, L = new Float32Array(Math.round(stats.order.length * per));
+stats.order.forEach((k, i) => {
+  const f = k < nA ? 330 : 550;
+  for (let j = Math.round(i * per); j < Math.round((i + 1) * per); j++) L[j] = 0.3 * Math.sin((2 * Math.PI * f * j) / sr);
+});
+core.FS.writeFile("mosh.wav", encodeWav(L, L, sr));
+
+if (run(...decodeArgs("moshed.avi", "mosh.mp4", "mosh.wav")) !== 0) fail("decode to MP4 (with sound) failed");
 const mp4 = core.FS.readFile("mosh.mp4");
 console.log(`mosh.mp4: ${mp4.length} bytes`);
+run("-hide_banner", "-i", "mosh.mp4");
+const streams = logs.join("\n");
+if (!/Video: h264/.test(streams) || !/Audio: aac/.test(streams)) fail("mosh.mp4 should have an H.264 video and an AAC audio stream");
+console.log("mosh.mp4 streams: H.264 video + AAC audio");
 
 // --- 4. does it actually mosh? Compare a frame just after the cut ---------------
 const grab = (file, n) => {
