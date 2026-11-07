@@ -14,6 +14,8 @@
 <body>
 <!-- The living background: a datamosh field you can drag to smear -->
 <canvas id="bg" aria-hidden="true"></canvas>
+<!-- After a mosh: the page background IS the moshed video, live from the pads (with their FX) -->
+<canvas id="bgmosh" aria-hidden="true" hidden></canvas>
 
 <main>
   <header>
@@ -68,14 +70,6 @@
       <div class="ctl">
         <div class="row"><label for="keepA">KEEP OF A</label><output id="keepAOut">2.0 s</output></div>
         <input type="range" id="keepA" min="0.3" max="20" step="0.1" value="2">
-      </div>
-      <div class="ctl">
-        <div class="row"><label for="bloom">BLOOM</label><output id="bloomOut">off</output></div>
-        <input type="range" id="bloom" min="0" max="30" step="1" value="0">
-      </div>
-      <div class="ctl">
-        <div class="row"><label for="bloomAt">BLOOM STARTS</label><output id="bloomAtOut">25%</output></div>
-        <input type="range" id="bloomAt" min="0" max="100" step="1" value="25">
       </div>
     </div>
     <button id="mosh" class="big" disabled>MOSH</button>

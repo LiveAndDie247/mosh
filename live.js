@@ -4,9 +4,8 @@
 //      frame (±8 px): the motion vectors a codec would have stored for a P-frame.
 //   2. PICTURE: normally the new frame is shown as is (a keyframe every frame). While MOSH is
 //      held, the new frame is NOT shown: the held picture is pushed along the motion vectors
-//      instead, plus the P-frame "residual", which is exactly what I-frame removal does. BLOOM
-//      freezes the vectors so the same motion keeps re-applying and the smear grows. MELT adds
-//      a downward drift to every vector, so the picture slides and drips.
+//      instead, plus the P-frame "residual", which is exactly what I-frame removal does. MELT
+//      adds a downward drift to every vector, so the picture slides and drips.
 //   3. FX on the way to the screen (and into REC): a COLOR mode (red/black, mono, heat, …) and
 //      GLITCH layers (RGB split, macroblock corruption, pixelate, tear, mirror, motion-vector
 //      view, strobe), all scaled by one AMOUNT.
@@ -187,7 +186,7 @@ export class LiveEngine {
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     this.arrays = {};
     this.last = { src: null, idx: -1, feedback: false };
-    this.bloomAcc = 0;
+    this.meltAcc = 0;
     this.time = 0;
   }
 
@@ -298,7 +297,7 @@ export class LiveEngine {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
-  // state: { src, idx: frame number, mosh, bloom, fx }
+  // state: { src, idx: frame number, mosh, fx }
   render(s, dt) {
     const A = this.arrays[s.src];
     if (!A) return;
@@ -307,17 +306,17 @@ export class LiveEngine {
     const melt = fx.melt ? 0.5 + 2 * (fx.amount ?? 0.5) : 0;
     const idx = Math.max(0, Math.min(A.n - 1, s.idx | 0));
     const changed = s.src !== this.last.src || idx !== this.last.idx;
-    const feedback = !!(s.mosh || s.bloom || melt);
+    const feedback = !!(s.mosh || melt);
     let tick = changed;
-    if ((s.bloom || melt) && !changed) {           // BLOOM / MELT keep re-applying at the frame rate, even paused
-      this.bloomAcc += dt * 24;
-      if (this.bloomAcc >= 1) { this.bloomAcc %= 1; tick = true; }
-    } else this.bloomAcc = 0;
+    if (melt && !changed) {                        // MELT keeps dripping at the frame rate, even paused
+      this.meltAcc += dt * 24;
+      if (this.meltAcc >= 1) { this.meltAcc %= 1; tick = true; }
+    } else this.meltAcc = 0;
     if (!feedback && this.last.feedback) tick = true;   // let go: a clean keyframe arrives
     if (tick) {
       const same = s.src === this.last.src && this.last.idx >= 0;
-      if (!s.bloom && changed) { if (same) this.motion(A.t, idx, this.last.idx); else this.zeroVec(); }
-      this.step(A.t, idx, same ? this.last.idx : idx, feedback, same && !s.bloom ? RESID : 0, melt);
+      if (changed) { if (same) this.motion(A.t, idx, this.last.idx); else this.zeroVec(); }
+      this.step(A.t, idx, same ? this.last.idx : idx, feedback, same && changed ? RESID : 0, melt);
       this.last = { src: s.src, idx, feedback };
     }
     this.present(this.pic[this.cur].t, fx);

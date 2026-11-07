@@ -12,7 +12,7 @@ import { sfx, audio } from "./sfx.js";
 import { PadMode } from "./pads.js";
 import { GifSheet, loadIndex, randomGif, randomVibe, prepareGif, gifURL, gifArgs } from "./gif.js";
 
-const BUILD = 11;                         // shown in the LOG, so a screenshot tells which version ran
+const BUILD = 12;                         // shown in the LOG, so a screenshot tells which version ran
 
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
@@ -21,8 +21,7 @@ const CORE_BASE = `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${CORE_VERSION}/dis
 const $ = id => document.getElementById(id);
 const ui = {
   fileA: $("fileA"), fileB: $("fileB"), cardA: $("cardA"), cardB: $("cardB"), nameA: $("nameA"), nameB: $("nameB"),
-  warn: $("warn"), keepA: $("keepA"), keepAOut: $("keepAOut"), bloom: $("bloom"), bloomOut: $("bloomOut"),
-  bloomAt: $("bloomAt"), bloomAtOut: $("bloomAtOut"), mosh: $("mosh"), bar: $("bar"), status: $("status"),
+  warn: $("warn"), keepA: $("keepA"), keepAOut: $("keepAOut"), mosh: $("mosh"), bar: $("bar"), status: $("status"),
   out: $("out"), save: $("save"), log: $("log"),
   thumbA: $("thumbA"), thumbB: $("thumbB"), randBoth: $("randBoth"), randSettings: $("randSettings"), autoMosh: $("autoMosh"),
 };
@@ -119,7 +118,24 @@ const pads = new PadMode($("pads"), {
   log,
   onHit: () => { logo.burst(...swipe); field.shock(innerWidth / 2, innerHeight / 2, 0.7); },
   onMosh: on => logo.hold(on),
+  onFrame: showBehind,
 });
+
+// Once a mosh is on the pads, it IS the page background: every frame of the pad screen (pads,
+// MOSH, COLOR and GLITCH included) is copied to a full-screen canvas behind the page, and the
+// drag-to-smear field retires.
+const bgm = $("bgmosh");
+let bgCtx = null;
+function showBehind(screen) {
+  if (!screen.width) return;
+  if (!bgCtx) {
+    bgCtx = bgm.getContext("2d", { alpha: false });
+    bgm.hidden = false;
+    field.retire();
+  }
+  if (bgm.width !== screen.width || bgm.height !== screen.height) { bgm.width = screen.width; bgm.height = screen.height; }
+  bgCtx.drawImage(screen, 0, 0);
+}
 
 // ---------- picking clips ----------
 // A clip lands in a slot: from the gallery (a video, or a GIF that gets converted) or from
@@ -213,8 +229,6 @@ async function randomBoth() {
   if (ui.randSettings.checked) {
     const max = +ui.keepA.max;
     ui.keepA.value = (0.3 + Math.random() * (max - 0.3) * 0.8).toFixed(1);
-    ui.bloom.value = Math.random() < 0.35 ? 0 : 1 + ((Math.random() * 30) | 0);
-    ui.bloomAt.value = (Math.random() * 100) | 0;
     updateLabels();
   }
   if (ui.autoMosh.checked) doMosh();
@@ -235,11 +249,6 @@ function refresh() {
 
 function updateLabels() {
   ui.keepAOut.textContent = fmtSec(+ui.keepA.value);
-  const n = +ui.bloom.value;
-  ui.bloomOut.textContent = n ? `×${n}` : "off";
-  ui.bloomAtOut.textContent = `${ui.bloomAt.value}%`;
-  ui.bloomAt.disabled = !n;
-  field.bloom = n / 30;                  // BLOOM also makes the background keep re-applying its vectors
 }
 
 // ---------- ffmpeg ----------
@@ -330,17 +339,17 @@ async function doMosh() {
     await run(encodeArgs({ inA, inB, keepA, w: size.w, h: size.h }), 0.04, 0.5, "ENCODING");
     await rm(inA); await rm(inB);
 
-    // 3-4. remove the I-frames (and bloom) in JavaScript
+    // 3-4. remove the I-frames in JavaScript
     setProgress(0.5, "MOSHING");
     const joined = await ffmpeg.readFile("joined.avi");
     await rm("joined.avi");
-    const { data, stats } = moshAvi(joined, { bloom: +ui.bloom.value, bloomAt: +ui.bloomAt.value / 100 });
+    const { data, stats } = moshAvi(joined);
     const { order, ...summary } = stats;
     log(`mosh: ${JSON.stringify(summary)}`);
     if (!stats.removedI) log("note: no keyframe found at the cut; the result may barely mosh");
     await ffmpeg.writeFile("moshed.avi", data);
 
-    // The sound, frame by frame in the same order as the moshed picture (bloom stutters too)
+    // The sound, frame by frame in the same order as the moshed picture
     let wav = null;
     try {
       setProgress(0.51, "SOUND");
@@ -417,7 +426,7 @@ for (const [c, input] of [[ui.cardA, ui.fileA], [ui.cardB, ui.fileB]]) {
   c.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
 }
 ui.randBoth.addEventListener("click", randomBoth);
-for (const s of [ui.keepA, ui.bloom, ui.bloomAt]) s.addEventListener("input", updateLabels);
+ui.keepA.addEventListener("input", updateLabels);
 ui.mosh.addEventListener("click", doMosh);
 ui.save.addEventListener("click", save);
 updateLabels();

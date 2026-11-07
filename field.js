@@ -81,7 +81,6 @@ export class Field {
     this.onSwipe = onSwipe;
     this.ok = false;
     this.error = null;
-    this.bloom = 0;                 // 0..1: BLOOM keeps re-applying the last vectors
     this.shocks = [];
     this.cleanSrc = null;
     try {
@@ -218,8 +217,11 @@ export class Field {
   // Shockwave ring from (x, y): MOSH and pad hits
   shock(x, y, power = 1) { if (this.ok) this.shocks.push({ x, y, t: 0, power }); }
 
+  // Once there's a finished mosh, it becomes the page background and this field retires
+  retire() { this.off = true; this.stop(); this.canvas.hidden = true; }
+
   start() {
-    if (!this.ok || this.raf) return;
+    if (!this.ok || this.off || this.raf) return;
     this.last = performance.now();
     const loop = now => {
       this.raf = requestAnimationFrame(loop);
@@ -246,7 +248,7 @@ export class Field {
     }
     this.shocks = this.shocks.filter(s => s.t < 0.7);
 
-    const keep = Math.exp(-2 * dt * (1 - 0.97 * this.bloom));   // fade ~1.5 s; BLOOM keeps them
+    const keep = Math.exp(-2 * dt);                               // vectors fade in ~1.5 s
     for (let i = 0; i < this.vec.length; i++) this.vec[i] *= keep;
     gl.bindTexture(gl.TEXTURE_2D, this.vecTex);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.bw, this.bh, gl.RG, gl.FLOAT, this.vec);

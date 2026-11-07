@@ -8,7 +8,6 @@
 //   PITCH: speeds video + audio together  ·  HOLD: keep playing after release  ·  REV: backwards
 //   ROLL: repeat speeds up 1/4 -> 1/32 while held  ·  TAPE STOP: everything slows to a halt
 //   MOSH (hold): stop showing new frames, push the held picture along the motion (live I-frame removal)
-//   BLOOM (hold): freeze the motion so it keeps re-applying
 import { audio } from "./sfx.js";
 import { LiveEngine, COLORS, GLITCHES } from "./live.js";
 import { decodeClip, padSize, PAD_FPS } from "./clipdecode.js";
@@ -27,7 +26,7 @@ export class PadMode {
     this.voice = null;
     this.pitch = 1; this.gate = 0.6; this.bpm = 120; this.repeatIdx = 0;
     this.holdOn = false; this.revOn = false;
-    this.moshHeld = false; this.bloomHeld = false; this.rollHeld = false;
+    this.moshHeld = false; this.rollHeld = false;
     this.lastSlice = 0;
     this.raf = 0;
     this.fx = { color: 0, amount: 0.5 };   // COLOR mode + GLITCH flags (live.js), into REC too
@@ -178,7 +177,6 @@ export class PadMode {
       fn.append(b);
     };
     holdBtn("MOSH", () => { this.moshHeld = true; this.o.onMosh?.(true); this.o.onHit?.(); }, () => { this.moshHeld = false; this.o.onMosh?.(false); });
-    holdBtn("BLOOM", () => { this.bloomHeld = true; }, () => { this.bloomHeld = false; });
     holdBtn("ROLL", () => this.rollOn(), () => this.rollOff());
     toggle("HOLD", () => { this.holdOn = !this.holdOn; if (!this.holdOn && this.voice && !this.voice.held) this.stopVoice(); else if (this.voice) this.voice.latched = this.holdOn; return this.holdOn; });
     toggle("REV", () => { this.revOn = !this.revOn; if (this.playing) this.restartT(); return this.revOn; });
@@ -589,6 +587,7 @@ export class PadMode {
     }
     // STROBE: flips the picture on every 1/8 note at the BPM
     const flash = !!this.fx.strobe && ((t * this.bpm) / 30) % 1 < 0.22;
-    this.engine.render({ src, idx, mosh: this.moshHeld, bloom: this.bloomHeld, fx: { ...this.fx, flash } }, dt);
+    this.engine.render({ src, idx, mosh: this.moshHeld, fx: { ...this.fx, flash } }, dt);
+    this.o.onFrame?.(this.screen);                 // the page background mirrors the screen
   }
 }

@@ -17,6 +17,7 @@ body {
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 /* The background field: fixed behind everything; only empty areas reach it */
+#bgmosh { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 0; object-fit: cover; image-rendering: pixelated; pointer-events: none; }
 #bg { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 0; image-rendering: pixelated; }
 main {
   position: relative; z-index: 1; max-width: 520px; margin: 0 auto;
@@ -178,8 +179,8 @@ body.sheet-open { overflow: hidden; }
 .pad span { position: absolute; left: 8px; bottom: 6px; }
 .pad.on { background: linear-gradient(#ff3b4c, #c40018); border-color: var(--red); color: #000; box-shadow: 0 0 14px rgba(255, 42, 60, .5); transform: translateY(1px); }
 .pad.on i { background: #fff; box-shadow: 0 0 6px #fff; }
-.fn-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; touch-action: none; }
-.fn { font-size: 11px; padding: 12px 0; letter-spacing: .12em; }
+.fn-row { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; touch-action: none; }
+.fn { font-size: 10px; padding: 12px 0; letter-spacing: .06em; }
 .fn.on { background: var(--cyan); border-color: var(--cyan); color: #000; }
 .seg { display: flex; flex-wrap: wrap; gap: 4px; margin-top: -6px; }
 .seg button { flex: 1 0 18%; font-size: 10px; padding: 8px 0; letter-spacing: 0; }
