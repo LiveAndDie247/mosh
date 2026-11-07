@@ -1,0 +1,49 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Optional real signing key, decoded from repo secrets by the workflow.
+// Without it the APK is signed with the build machine's debug key (installs fine,
+// but each build has a different key, so updating means uninstalling first).
+def keystorePath = System.getenv('MOSH_KEYSTORE')
+
+android {
+    namespace 'io.github.liveanddie247.mosh'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'io.github.liveanddie247.mosh'
+        minSdk 21
+        targetSdk 34
+        versionCode((project.findProperty('versionCode') ?: '1') as int)
+        versionName "1.0.${versionCode}"
+    }
+
+    signingConfigs {
+        if (keystorePath) {
+            release {
+                storeFile file(keystorePath)
+                storePassword System.getenv('MOSH_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('MOSH_KEY_ALIAS')
+                keyPassword System.getenv('MOSH_KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig keystorePath ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // Google's Trusted Web Activity launcher (what Bubblewrap generates under the hood)
+    implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.5.0'
+}

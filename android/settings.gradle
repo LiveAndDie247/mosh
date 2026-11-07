@@ -1,0 +1,19 @@
+// MOSH as an installable Android app: a Trusted Web Activity that opens
+// https://liveanddie247.github.io/mosh/ in Chrome (so file pickers, ffmpeg.wasm and
+// Share all work exactly as on the web). Built by .github/workflows/apk.yml.
+pluginManagement {
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+rootProject.name = "mosh"
+include ":app"
