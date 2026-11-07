@@ -23,13 +23,11 @@ const run = (...args) => { logs.length = 0; core.setTimeout?.(-1); core.exec(...
 
 const manifest = JSON.parse(fs.readFileSync(path.join(here, "..", "clips", "gifcities", "manifest.json"), "utf8"));
 console.log(`index: ${manifest.count} GIFs`);
-// A spread of shapes: small square, wide banner, tall, plus whatever "spiral" and "eye" give
+// One GIF from each vibe, plus the widest and the tallest
 const pick = [
-  manifest.gifs.find(g => g.w <= 64 && g.h <= 64),
-  manifest.gifs.find(g => g.w >= 300 && g.h <= 90),
-  manifest.gifs.find(g => g.h > g.w * 1.3),
-  manifest.gifs.find(g => g.t.includes("spiral")),
-  manifest.gifs.find(g => g.t.includes("eye")),
+  ...(manifest.vibes || []).map(v => manifest.gifs.find(g => g.v === v)),
+  [...manifest.gifs].sort((a, b) => b.w / b.h - a.w / a.h)[0],
+  [...manifest.gifs].sort((a, b) => b.h / b.w - a.h / a.w)[0],
 ].filter(Boolean);
 
 let failed = 0;

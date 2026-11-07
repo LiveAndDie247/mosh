@@ -12,7 +12,7 @@ import { sfx, audio } from "./sfx.js";
 import { PadMode } from "./pads.js";
 import { GifSheet, loadIndex, randomGif, randomVibe, prepareGif, gifURL, gifArgs } from "./gif.js";
 
-const BUILD = 10;                         // shown in the LOG, so a screenshot tells which version ran
+const BUILD = 11;                         // shown in the LOG, so a screenshot tells which version ran
 
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
@@ -204,9 +204,10 @@ async function dice(which) {
 async function randomBoth() {
   if (busy || prepping) return;
   try { await loadIndex(); } catch (e) { log(`ERROR: ${e.message || e}`); return; }
-  const vibe = randomVibe();
-  const a = randomGif(null, vibe), b = randomGif(a, vibe);
-  log(`random both: vibe ${vibe || "any"}`);
+  // Half the time both from one vibe, half the time two vibes collide (footage x weird web)
+  const vA = randomVibe(), vB = Math.random() < 0.5 ? vA : randomVibe();
+  const a = randomGif(null, vA), b = randomGif(a, vB);
+  log(`random both: ${vA || "any"} x ${vB || "any"}`);
   if (!(await useGif("A", a))) return;
   if (!(await useGif("B", b))) return;
   if (ui.randSettings.checked) {

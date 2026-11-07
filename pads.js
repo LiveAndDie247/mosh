@@ -10,7 +10,7 @@
 //   MOSH (hold): stop showing new frames, push the held picture along the motion (live I-frame removal)
 //   BLOOM (hold): freeze the motion so it keeps re-applying
 import { audio } from "./sfx.js";
-import { LiveEngine } from "./live.js";
+import { LiveEngine, COLORS, GLITCHES } from "./live.js";
 import { decodeClip, padSize, PAD_FPS } from "./clipdecode.js";
 
 const REPEATS = [["OFF", 0], ["1/4", 1], ["1/8", 1 / 2], ["1/16", 1 / 4], ["1/32", 1 / 8],
@@ -30,6 +30,7 @@ export class PadMode {
     this.moshHeld = false; this.bloomHeld = false; this.rollHeld = false;
     this.lastSlice = 0;
     this.raf = 0;
+    this.fx = { color: 0, amount: 0.5 };   // COLOR mode + GLITCH flags (live.js), into REC too
     // main playback (the transport)
     this.playing = false; this.tpos = 0; this.tnode = null; this.ttape = null; this.lastT = 0;
     document.addEventListener("visibilitychange", () => {
@@ -112,6 +113,13 @@ export class PadMode {
         <label><span>GATE</span><output class="o-gate"></output><input type="range" class="f-gate" min="10" max="100" value="60"></label>
         <label><span>PITCH</span><output class="o-pitch"></output><input type="range" class="f-pitch" min="-100" max="100" value="0"></label>
         <label><span>BPM</span><output class="o-bpm"></output><input type="range" class="f-bpm" min="60" max="180" value="120"></label>
+      </div>
+      <div class="fx-head"><span class="sub-h">COLOR</span></div>
+      <div class="seg colors"></div>
+      <div class="fx-head"><span class="sub-h">GLITCH</span><button class="fx-rand">🎲 FX</button><button class="fx-clear">CLEAR</button></div>
+      <div class="glitch-row"></div>
+      <div class="faders">
+        <label><span>AMOUNT</span><output class="o-amt"></output><input type="range" class="f-amt" min="0" max="100" value="50"></label>
       </div>`;
     this.msg = r.querySelector(".pads-msg");
     const screen = (this.screen = r.querySelector(".live-screen"));
@@ -200,6 +208,47 @@ export class PadMode {
     for (const el of [gate, pitch, bpm]) el.addEventListener("input", upd);
     pitch.addEventListener("dblclick", () => { pitch.value = 0; upd(); });   // double-tap: back to 1×
     upd();
+
+    // FX: one COLOR mode, any number of GLITCH layers, one AMOUNT
+    const colors = r.querySelector(".colors");
+    this.colorBtns = COLORS.map((label, i) => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.addEventListener("click", () => { this.fx.color = i; this.syncFx(); });
+      colors.append(b);
+      return b;
+    });
+    const glitch = r.querySelector(".glitch-row");
+    this.glitchBtns = GLITCHES.map(label => {
+      const key = label.toLowerCase(), b = document.createElement("button");
+      b.className = "fn"; b.textContent = label;
+      b.addEventListener("click", () => { this.fx[key] = !this.fx[key]; this.syncFx(); this.o.onHit?.(); });
+      glitch.append(b);
+      return [key, b];
+    });
+    const amt = f(".f-amt");
+    const updAmt = () => { this.fx.amount = +amt.value / 100; f(".o-amt").textContent = `${amt.value}%`; };
+    amt.addEventListener("input", updAmt);
+    updAmt();
+    r.querySelector(".fx-rand").addEventListener("click", () => {
+      this.fx.color = Math.random() < 0.3 ? 0 : 1 + ((Math.random() * (COLORS.length - 1)) | 0);
+      for (const [key] of this.glitchBtns) this.fx[key] = Math.random() < (key === "strobe" || key === "mirror" ? 0.15 : 0.35);
+      amt.value = 25 + ((Math.random() * 70) | 0);
+      updAmt();
+      this.syncFx();
+      this.o.onHit?.();
+    });
+    r.querySelector(".fx-clear").addEventListener("click", () => {
+      this.fx.color = 0;
+      for (const [key] of this.glitchBtns) this.fx[key] = false;
+      this.syncFx();
+    });
+    this.syncFx();
+  }
+
+  syncFx() {
+    (this.colorBtns || []).forEach((b, i) => b.classList.toggle("on", i === this.fx.color));
+    for (const [key, b] of this.glitchBtns || []) b.classList.toggle("on", !!this.fx[key]);
   }
 
   syncUI() {
@@ -538,6 +587,8 @@ export class PadMode {
       this.scrubHead.style.left = `${(pos / c.duration) * 100}%`;
       this.scrubFill.style.width = `${(this.tpos / c.duration) * 100}%`;
     }
-    this.engine.render({ src, idx, mosh: this.moshHeld, bloom: this.bloomHeld }, dt);
+    // STROBE: flips the picture on every 1/8 note at the BPM
+    const flash = !!this.fx.strobe && ((t * this.bpm) / 30) % 1 < 0.22;
+    this.engine.render({ src, idx, mosh: this.moshHeld, bloom: this.bloomHeld, fx: { ...this.fx, flash } }, dt);
   }
 }
