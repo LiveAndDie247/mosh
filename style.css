@@ -177,6 +177,53 @@ input[type=range]:disabled { opacity: .35; }
 .sb-btn { font-size: 20px; padding: 4px 10px; color: var(--dim); border-color: #444; flex: none; }
 .sb-foot { white-space: nowrap; flex: none; }
 
+.sb-daisy { color: var(--cyan); border-color: var(--cyan); }
+
+/* ---------- 05 DAISY CHAIN: a drawer along the bottom of the device ---------- */
+.daisy {
+  position: absolute; left: 0; right: 0; bottom: 46px; height: 360px; z-index: 4;
+  display: flex; flex-direction: column; background: rgba(0, 0, 0, .96); border-top: 2px solid var(--cyan);
+}
+.dz-head { display: flex; align-items: center; gap: 16px; padding: 8px 16px; border-bottom: var(--hair); flex: none; }
+.dz-head .ph { flex: none; }
+.dz-head .ph::after { display: none; }
+.dz-read { flex: 1; min-width: 0; color: var(--cyan); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.daisy.too-long .dz-read { color: #ffb000; }
+.dz-close { padding: 2px 16px; }
+.dz-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 470px; }
+.dz-left { display: flex; flex-direction: column; min-width: 0; border-right: var(--hair); }
+.dz-row { flex: 1; min-height: 0; display: flex; align-items: center; border-bottom: var(--hair); }
+.dz-row:last-child { border-bottom: 0; }
+.dz-lab { flex: none; width: 110px; padding-left: 16px; color: var(--dim); letter-spacing: .2em; }
+.dz-shelf, .dz-chain { flex: 1; min-width: 0; height: 100%; display: flex; align-items: center; gap: 8px; overflow-x: auto; overflow-y: hidden; padding: 0 12px; scrollbar-width: thin; scrollbar-color: #444 transparent; }
+.dz-empty, .dz-hint { color: var(--dim); font-size: var(--t); }
+.dz-item, .dz-link { position: relative; flex: none; width: 168px; height: 100px; border: var(--hair); background: #0b0b0b; cursor: pointer; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.dz-item img, .dz-link img { width: 100%; height: 100%; object-fit: cover; display: block; pointer-events: none; }
+.dz-item span, .dz-link span { position: absolute; left: 6px; bottom: 2px; font-size: var(--t); text-shadow: 0 0 4px #000, 0 0 2px #000; pointer-events: none; }
+.dz-item.sel { border: 2px solid var(--cyan); }
+.dz-link { border-color: var(--red); touch-action: none; }
+.dz-link.drag { z-index: 2; box-shadow: 0 0 18px rgba(255, 42, 60, .6); }
+.dz-join { flex: none; font-size: var(--t); padding: 8px 10px; letter-spacing: .04em; }
+.dz-join.j-mosh { color: var(--red); border-color: var(--red); }
+.dz-join.j-bloom { color: #ff6bd5; border-color: #ff6bd5; }
+.dz-join.j-soup { color: #ffb000; border-color: #ffb000; }
+.dz-join.j-cut { color: var(--fg); }
+.dz-new { flex: none; height: 100px; padding: 0 18px; border-style: dashed; color: var(--cyan); border-color: var(--cyan); }
+.dz-ctl { display: flex; flex-direction: column; gap: 8px; padding: 10px 14px; min-height: 0; overflow-y: auto; }
+.dz-sel { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; min-height: 46px; align-items: center; }
+.dz-sel .dz-hint { grid-column: 1 / -1; font-size: 20px; line-height: 1.3; }
+.dz-sel button { font-size: var(--t); padding: 8px 0; }
+.dz-grid { display: grid; grid-template-columns: 1fr 1.3fr 52px 52px; gap: 5px; }
+.dz-grid3 { display: grid; grid-template-columns: 1fr 1.6fr 1.2fr; gap: 5px; }
+.dz-grid button, .dz-grid3 button { font-size: var(--t); padding: 9px 0; }
+.dz-grow, .dz-growN { color: #8cff6b; border-color: #8cff6b; }
+.dz-loop.on { background: var(--cyan); color: #000; border-color: var(--cyan); }
+.dz-render { color: var(--red); border-color: var(--red); }
+.dz-f { display: grid; grid-template-columns: 180px 70px 1fr; align-items: center; font-size: var(--t); letter-spacing: .08em; }
+#p-pads.arming .pad { border-color: var(--cyan); animation: blink .6s steps(2) infinite; }
+.pad.own { background-size: cover; background-position: center; color: #fff; text-shadow: 0 0 3px #000; }
+.live-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+
 /* The LOG overlay */
 #logbox {
   position: absolute; left: 0; right: 0; bottom: 46px; height: 55%; z-index: 5;

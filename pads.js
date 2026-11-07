@@ -34,6 +34,8 @@ export class PadMode {
     this.lastSlice = 0;
     this.raf = 0;
     this.fx = { color: 0, amount: 0.5 };   // COLOR mode + GLITCH flags (live.js), into REC too
+    this.padSrc = [];                       // pads holding their own clip (from the bank): "P<n>"
+    this.clips = {};
     // main playback (the transport)
     this.playing = false; this.tpos = 0; this.tnode = null; this.ttape = null; this.lastT = 0;
     document.addEventListener("visibilitychange", () => {
@@ -49,28 +51,32 @@ export class PadMode {
 
   status(text) { if (this.msg) this.msg.textContent = text; }
 
+  initAudio() {
+    if (this.ac) return;
+    this.ac = audio();
+    if (!this.ac) throw new Error("Web Audio isn't available");
+    this.out = this.ac.createGain();
+    this.out.gain.value = 0.9;
+    this.out.connect(this.ac.destination);
+  }
+
   // Load the finished mosh (an MP4 file) onto the pads. Returns true if it worked.
   async loadMoshed(file, w, h) {
     if (this.loading) return false;
     this.loading = true;
     try {
-      if (!this.ac) {
-        this.ac = audio();
-        if (!this.ac) throw new Error("Web Audio isn't available");
-        this.out = this.ac.createGain();
-        this.out.gain.value = 0.9;
-        this.out.connect(this.ac.destination);
-      }
+      this.initAudio();
+      this.stopPreview();
       if (this.voice) this.stopVoice();
       this.pause();
       this.status("Loading the mosh onto the pads…");
       const ff = await this.o.loadFFmpeg();
       const clip = await decodeClip(ff, file, padSize(w, h), this.ac, p => this.status(`Loading onto the pads… ${Math.round(p * 100)}%`));
       if (!this.engine) throw this.buildError || new Error("no live screen");
-      this.engine.setClips({ M: clip });
+      this.engine.addClip("M", clip);
       this.root.querySelector(".screen-msg").hidden = true;
       clip.frames = null;                                       // it lives on the GPU now
-      this.clips = { M: clip };
+      this.clips.M = clip;
       this.sel = "M";
       this.shownSrc = "M"; this.shownIdx = 0; this.tpos = 0;
       this.syncUI();
@@ -90,6 +96,75 @@ export class PadMode {
     }
   }
 
+  // ---------- bank items on single pads ----------
+  // arm(file, …): the next pad you tap gets this clip; that pad then plays it whole.
+  arm(file, label, thumbUrl) {
+    this.armed = { file, label, thumbUrl };
+    this.padRoot.classList.add("arming");
+    this.status(`tap a pad to load "${label}"`);
+  }
+  async assignArmed(i) {
+    const { file, label, thumbUrl } = this.armed;
+    this.armed = null;
+    this.padRoot.classList.remove("arming");
+    try {
+      this.initAudio();
+      this.status(`Loading "${label}" onto pad ${i + 1}…`);
+      const ff = await this.o.loadFFmpeg();
+      const size = this.engine.pic ? { w: this.engine.w, h: this.engine.h } : padSize(0, 0);
+      const clip = await decodeClip(ff, file, size, this.ac);
+      const key = `P${i}`;
+      this.engine.addClip(key, clip, false);
+      clip.frames = null;
+      this.clips[key] = clip;
+      this.padSrc[i] = key;
+      const p = this.pads[i];
+      p.classList.add("own");
+      if (thumbUrl) p.style.backgroundImage = `url("${thumbUrl}")`;
+      p.title = label;
+      this.status(`pad ${i + 1}: ${label}`);
+      this.startLoop();
+    } catch (e) {
+      this.status(`Couldn't load the pad: ${e.message || e}`);
+      this.o.log?.(`pad error: ${e.message || e}`);
+    }
+  }
+
+  // ---------- long clips (a rendered chain): played as a plain video on the screen ----------
+  // (the pads hold up to 8 s; a chain can be a minute)
+  previewVideo(blob, label = "") {
+    this.stopPreview();
+    if (this.voice) this.stopVoice();
+    this.pause();
+    const v = this.root.querySelector(".live-video");
+    if (this.previewUrl) URL.revokeObjectURL(this.previewUrl);
+    this.previewUrl = URL.createObjectURL(blob);
+    v.src = this.previewUrl;
+    v.hidden = false;
+    this.screen.style.visibility = "hidden";
+    this.root.querySelector(".screen-msg").hidden = true;
+    this.previewing = true;
+    this.pvPlaying = true;
+    v.play().catch(() => {});
+    this.status(`${label} · playing as a video (pads hold 8 s)`);
+    const loop = () => {
+      if (!this.previewing) return;
+      if (v.readyState >= 2) this.o.onFrame?.(v);
+      requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+    this.syncUI();
+  }
+  stopPreview() {
+    if (!this.previewing) return;
+    this.previewing = false;
+    const v = this.root.querySelector(".live-video");
+    v.pause();
+    v.hidden = true;
+    this.screen.style.visibility = "";
+    this.syncUI();
+  }
+
   // ---------- the pad UI ----------
   build() {
     const r = this.root, pr = this.padRoot;
@@ -97,6 +172,7 @@ export class PadMode {
       <h2 class="ph"><span>03</span> PLAY<span class="pads-msg"></span></h2>
       <div class="screen-wrap">
         <canvas class="live-screen"></canvas>
+        <video class="live-video" loop playsinline hidden></video>
         <p class="screen-msg">Hit MOSH: the finished mosh plays here on loop, with its sound.<br>Then play it on the pads.</p>
         <span class="rec-dot" hidden>● REC</span>
       </div>
@@ -131,7 +207,10 @@ export class PadMode {
 
     // Transport
     this.playBtn = r.querySelector(".t-play");
-    this.playBtn.addEventListener("click", () => (this.playing ? this.pause() : this.play()));
+    this.playBtn.addEventListener("click", () => {
+      const on = this.previewing ? this.pvPlaying !== false : this.playing;
+      on ? this.pause() : this.play();
+    });
     this.recBtn = r.querySelector(".t-rec");
     this.recBtn.addEventListener("click", () => (this.rec ? this.recStop() : this.recStart()));
     // FULL: the whole app full screen, locked sideways (the lock only works in full screen)
@@ -264,18 +343,20 @@ export class PadMode {
   syncUI() {
     (this.repBtns || []).forEach((b, i) => b.classList.toggle("on", i === this.repeatIdx));
     if (this.playBtn) {
-      this.playBtn.textContent = this.playing ? "■ STOP" : "▶ PLAY";
-      this.playBtn.classList.toggle("on", this.playing);
+      const on = this.previewing ? this.pvPlaying !== false : this.playing;
+      this.playBtn.textContent = on ? "■ STOP" : "▶ PLAY";
+      this.playBtn.classList.toggle("on", on);
     }
     this.light();
   }
   light() {
     const v = this.voice;
-    (this.pads || []).forEach((p, i) => p.classList.toggle("on", !!v && v.src === this.sel && v.slice === i));
+    (this.pads || []).forEach((p, i) => p.classList.toggle("on", !!v && v.slice === i));
   }
 
   // ---------- main playback: the whole mosh on loop ----------
   play() {
+    if (this.previewing) { this.root.querySelector(".live-video").play().catch(() => {}); this.pvPlaying = true; this.syncUI(); return; }
     if (!this.loaded) return;
     if (this.ac.state === "suspended") this.ac.resume();
     this.killT();
@@ -285,6 +366,7 @@ export class PadMode {
     this.syncUI();
   }
   pause() {
+    if (this.previewing) { this.root.querySelector(".live-video").pause(); this.pvPlaying = false; this.syncUI(); return; }
     this.playing = false;
     this.ttape = null;
     this.killT();
@@ -448,12 +530,16 @@ export class PadMode {
   }
 
   trigger(i) {
-    if (!this.loaded) return;
+    if (this.armed) { this.assignArmed(i); return; }
+    const own = this.padSrc[i];                       // a bank item on this pad: it plays whole
+    if (!this.loaded && !own) return;
+    this.stopPreview();
     if (this.ac.state === "suspended") this.ac.resume();
     const t = this.ac.currentTime + 0.003;
     if (this.voice) this.cut(this.voice, t);
-    const c = this.clips[this.sel], len = c.duration / 16;
-    const v = { src: this.sel, slice: i, start: i * len, len, rev: this.revOn, held: true, latched: this.holdOn,
+    const src = own || this.sel, c = this.clips[src];
+    const len = own ? c.duration : c.duration / 16, start = own ? 0 : i * len;
+    const v = { src, slice: i, start, len, rev: this.revOn, held: true, latched: this.holdOn,
       segs: [], nodes: [], elapsed: 0, lastAt: t };
     this.voice = v;
     this.duck(true);
@@ -591,7 +677,7 @@ export class PadMode {
 
   // ---------- the frame loop ----------
   startLoop() {
-    if (this.raf || !this.loaded) return;
+    if (this.raf || !this.ac || !this.engine?.pic) return;
     let last = performance.now();
     this.lastT = this.ac.currentTime;
     const loop = now => {
@@ -624,7 +710,8 @@ export class PadMode {
       src = this.sel;
       idx = Math.floor(this.tpos * PAD_FPS);
     }
-    if (c) idx = Math.max(0, Math.min(c.n - 1, idx));
+    const sc = this.clips[src];
+    if (sc) idx = Math.max(0, Math.min(sc.n - 1, idx));
     this.shownSrc = src; this.shownIdx = idx;
     if (c && this.scrubHead) {
       this.scrubHead.style.left = `${(pos / c.duration) * 100}%`;
@@ -633,6 +720,6 @@ export class PadMode {
     // STROBE: flips the picture on every 1/8 note at the BPM
     const flash = !!this.fx.strobe && ((t * this.bpm) / 30) % 1 < 0.22;
     this.engine.render({ src, idx, mosh: this.moshHeld, fx: { ...this.fx, flash } }, dt);
-    this.o.onFrame?.(this.screen);                 // the page background mirrors the screen
+    if (!this.previewing) this.o.onFrame?.(this.screen);   // the page background mirrors the screen
   }
 }

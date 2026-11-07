@@ -216,26 +216,34 @@ export class LiveEngine {
   // clips: { M } (or any keys) each { w, h, n, frames: Uint8Array (n frames of RGBA, top row first) }
   setClips(clips) {
     this.release();
-    const gl = this.gl, any = Object.values(clips).find(Boolean);
-    this.w = any.w; this.h = any.h;
-    this.canvas.width = this.w * OUT_SCALE; this.canvas.height = this.h * OUT_SCALE;
-    this.bw = this.w / 8; this.bh = this.h / 8;
-    const maxLayers = gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS);
-    for (const [k, c] of Object.entries(clips)) {
-      if (!c) continue;
-      const n = Math.min(c.n, maxLayers);
-      const t = gl.createTexture();
-      gl.bindTexture(gl.TEXTURE_2D_ARRAY, t);
-      gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-      gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA8, c.w, c.h, n, 0, gl.RGBA, gl.UNSIGNED_BYTE, c.frames.subarray(0, n * c.w * c.h * 4));
-      for (const [p, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D_ARRAY, p, v);
-      if (gl.getError() === gl.OUT_OF_MEMORY) throw new Error("not enough GPU memory for the clip frames");
-      this.arrays[k] = { t, n };
+    for (const [k, c] of Object.entries(clips)) if (c) this.addClip(k, c);
+  }
+
+  // Add (or replace) one clip, keeping the others: the main mosh is "M", a bank item on a pad is
+  // "P<n>". The picture size follows the main clip; other sizes are stretched to it.
+  addClip(k, c, main = k === "M") {
+    const gl = this.gl;
+    if (this.arrays[k]) { gl.deleteTexture(this.arrays[k].t); delete this.arrays[k]; }
+    if (!this.pic || (main && (c.w !== this.w || c.h !== this.h))) {
+      for (const x of [...(this.pic || []), this.vec]) if (x) { gl.deleteTexture(x.t); gl.deleteFramebuffer(x.fb); }
+      this.w = c.w; this.h = c.h;
+      this.canvas.width = this.w * OUT_SCALE; this.canvas.height = this.h * OUT_SCALE;
+      this.bw = this.w / 8; this.bh = this.h / 8;
+      this.pic = [this.tex2d(this.w, this.h), this.tex2d(this.w, this.h)];
+      this.cur = 0;
+      this.vec = this.tex2d(this.bw, this.bh);
+      this.zeroVec();
+      this.last = { src: null, idx: -1, feedback: false };
     }
-    this.pic = [this.tex2d(this.w, this.h), this.tex2d(this.w, this.h)];
-    this.cur = 0;
-    this.vec = this.tex2d(this.bw, this.bh);
-    this.zeroVec();
+    const n = Math.min(c.n, gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS));
+    const t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, t);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA8, c.w, c.h, n, 0, gl.RGBA, gl.UNSIGNED_BYTE, c.frames.subarray(0, n * c.w * c.h * 4));
+    for (const [p, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D_ARRAY, p, v);
+    if (gl.getError() === gl.OUT_OF_MEMORY) { gl.deleteTexture(t); throw new Error("not enough GPU memory for the clip frames"); }
+    this.arrays[k] = { t, n };
+    if (this.last.src === k) this.last = { src: null, idx: -1, feedback: false };
   }
 
   zeroVec() {

@@ -108,9 +108,93 @@ export function moshAvi(input, { bloom = 0, bloomAt = 0 } = {}) {
     }
   }
   const videoOut = out.filter(c => isVideo(c.id)).length;
+  return {
+    data: writeAvi(u8, hdrl, movi, out),
+    stats: {
+      frames, kept: videoOut, removedI: removed, cutFrame: cut, bloomFrame, bloomCopies: bloomFrame >= 0 ? bloom : 0,
+      // For each output frame, the original frame it came from (so the sound can follow the picture)
+      order: out.filter(c => isVideo(c.id)).map(c => c.fi),
+    },
+  };
+}
 
-  // 3. Write a new AVI: everything before movi (headers, patched), a new movi, a new idx1.
-  //    Anything after movi in the original (the old idx1, extra RIFFs) is not copied.
+// DAISY CHAIN: one AVI of several links, with a forced keyframe exactly where each link starts.
+// joins: [{ at: frame number where the next link starts, type, count }] where type is
+//   "mosh"  : delete the keyframe; the next link's motion drags this link's last picture
+//   "bloom" : the same, plus `count` extra copies of the next link's first motion frame
+//   "soup"  : delete the keyframe and interleave the motion frames of both links for
+//             `soupFrames` frames around the join (alternating P-frames), then hand off
+//   "cut"   : keep the keyframe: a clean, hard reset
+// Any keyframe that isn't at a join is deleted too (the encoder shouldn't make any).
+// Returns { data, stats: { frames, kept, removedI, joins (what was applied), order } }.
+export function moshChain(input, joins = [], { soupFrames = 30 } = {}) {
+  const u8 = input instanceof Uint8Array ? input : new Uint8Array(input);
+  const { hdrl, movi, chunks } = parseAvi(u8);
+  const vids = [];
+  for (const c of chunks) {
+    if (!isVideo(c.id)) continue;                           // the chain AVI is video only
+    vids.push({ ...c, fi: vids.length, type: c.size ? vopType(u8, c.o + 8, c.o + 8 + c.size) : -1 });
+  }
+  if (!vids.length || vids[0].type !== 0) throw new Error("The chain doesn't start with an MPEG-4 I-frame");
+  // A join's keyframe can land a frame off; match within ±2
+  const joinAt = fi => joins.find(j => Math.abs(j.at - fi) <= 2) || null;
+
+  const out = [], applied = [];
+  let removed = 0, segStart = 0, bloomPending = 0;
+  for (let i = 0; i < vids.length; i++) {
+    const f = vids[i];
+    if (f.type === 0 && i > 0) {
+      const j = joinAt(f.fi) || { at: f.fi, type: "mosh", stray: true };
+      if (j.type === "cut") {
+        out.push({ ...f, key: true });
+        applied.push({ at: f.fi, type: "cut" });
+        segStart = out.length - 1;
+        continue;
+      }
+      removed++;
+      if (j.type === "soup") {
+        // the last K motion frames of this link, alternating with the next link's first K
+        const half = Math.max(1, Math.round(soupFrames / 2));
+        const tail = [];
+        while (tail.length < half && out.length > segStart + 1 && out[out.length - 1].p) tail.unshift(out.pop());
+        const head = [];
+        let k = i + 1;
+        while (head.length < tail.length && k < vids.length && vids[k].type === 1) head.push(vids[k++]);
+        const n = Math.min(tail.length, head.length);
+        // frames of the tail that won't be paired go back first
+        out.push(...tail.slice(0, tail.length - n).map(c => ({ ...c })));
+        const t = tail.slice(tail.length - n);
+        for (let m = 0; m < n; m++) {
+          out.push({ ...t[m], key: false, p: true });
+          out.push({ ...head[m], key: false, p: true });
+        }
+        i = k - 1;
+        applied.push({ at: f.fi, type: "soup", frames: 2 * n });
+      } else {
+        if (j.type === "bloom") bloomPending = Math.max(0, j.count | 0);
+        if (!j.stray) applied.push({ at: f.fi, type: j.type, ...(j.type === "bloom" && { count: bloomPending }) });
+      }
+      segStart = out.length;
+      continue;
+    }
+    const isP = f.type === 1;
+    out.push({ ...f, key: i === 0, p: isP });
+    if (bloomPending && isP && f.size) {
+      for (let b = 0; b < bloomPending; b++) out.push({ ...f, key: false, p: true });
+      bloomPending = 0;
+    }
+  }
+  return {
+    data: writeAvi(u8, hdrl, movi, out),
+    stats: { frames: vids.length, kept: out.length, removedI: removed, joins: applied, order: out.map(c => c.fi) },
+  };
+}
+
+// Write a new AVI: everything before movi (headers, patched), a new movi from `out` (chunks
+// of the input: { id, o, size, key }), a new idx1. Anything after movi in the original (the
+// old idx1, extra RIFFs) is not copied.
+function writeAvi(u8, hdrl, movi, out) {
+  const videoOut = out.filter(c => isVideo(c.id)).length;
   const moviBody = out.reduce((n, c) => n + 8 + c.size + (c.size & 1), 0);
   const idxSize = out.length * 16;
   const total = movi.o + 12 + moviBody + 8 + idxSize;
@@ -152,13 +236,5 @@ export function moshAvi(input, { bloom = 0, bloomAt = 0 } = {}) {
   }
   res.set([0x52, 0x49, 0x46, 0x46], 0);                     // 'RIFF'
   rv.setUint32(4, total - 8, true);
-
-  return {
-    data: res,
-    stats: {
-      frames, kept: videoOut, removedI: removed, cutFrame: cut, bloomFrame, bloomCopies: bloomFrame >= 0 ? bloom : 0,
-      // For each output frame, the original frame it came from (so the sound can follow the picture)
-      order: out.filter(c => isVideo(c.id)).map(c => c.fi),
-    },
-  };
+  return res;
 }

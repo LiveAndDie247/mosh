@@ -4,7 +4,10 @@
 import { FFmpeg } from "./vendor/ffmpeg/index.js";
 import { fetchFile } from "./vendor/util/index.js";
 import { moshAvi } from "./mosh.js";
-import { encodeArgs, decodeArgs, targetSize, framesOf, MAX_SECONDS } from "./pipeline.js";
+import { encodeArgs, decodeArgs, targetSize, framesOf, MAX_SECONDS, FPS } from "./pipeline.js";
+import { PAD_MAX } from "./clipdecode.js";
+import { bank, makeThumb } from "./bank.js";
+import { Daisy } from "./daisy.js";
 import { buildMoshAudio } from "./wav.js";
 import { Field, patternImage } from "./field.js";
 import { Logo } from "./logo.js";
@@ -13,7 +16,7 @@ import { PadMode } from "./pads.js";
 import { Layout } from "./layout.js";
 import { GifSheet, loadIndex, randomGif, randomVibe, prepareGif, gifURL, gifArgs } from "./gif.js";
 
-const BUILD = 14;                         // shown in the LOG, so a screenshot tells which version ran
+const BUILD = 15;                         // shown in the LOG, so a screenshot tells which version ran
 
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
@@ -116,11 +119,7 @@ for (const t of ["pointerup", "pointercancel", "pointerleave"]) ui.mosh.addEvent
 // LIVE PADS: the finished mosh lands here and plays on loop. Every pad hit is a shockwave + a
 // logo burst; their MOSH keeps the logo melting.
 const pads = new PadMode({ play: $("p-play"), pads: $("p-pads") }, {
-  loadFFmpeg: async () => {
-    if (busy) throw new Error("wait for the render to finish first");
-    await loadFFmpeg();
-    return ffmpeg;
-  },
+  loadFFmpeg: async () => { await loadFFmpeg(); return ffmpeg; },   // ffmpeg.wasm runs one job at a time anyway
   log,
   onHit: () => { logo.burst(...swipe); field.shock(innerWidth / 2, innerHeight / 2, 0.7); },
   onMosh: on => logo.hold(on),
@@ -133,13 +132,16 @@ const pads = new PadMode({ play: $("p-play"), pads: $("p-pads") }, {
 const bgm = $("bgmosh");
 let bgCtx = null;
 function showBehind(screen) {
-  if (!screen.width) return;
+  // the pad screen (a canvas drawn 3x) or a video playing a long chain
+  const isVideo = screen.tagName === "VIDEO";
+  const sw = isVideo ? screen.videoWidth / 2 : screen.width / 3, sh = isVideo ? screen.videoHeight / 2 : screen.height / 3;
+  if (!sw || !sh) return;
   if (!bgCtx) {
     bgCtx = bgm.getContext("2d", { alpha: false });
     bgm.hidden = false;
     field.retire();
   }
-  const w = Math.round(screen.width / 3), h = Math.round(screen.height / 3);   // the screen is drawn 3x; the background doesn't need that
+  const w = Math.round(sw), h = Math.round(sh);
   if (bgm.width !== w || bgm.height !== h) { bgm.width = w; bgm.height = h; }
   bgCtx.drawImage(screen, 0, 0, w, h);
 }
@@ -149,7 +151,7 @@ function showBehind(screen) {
 // GifCities. `thumb` is a GIF URL, so the slot shows it animating; videos show a still.
 async function setClip(which, file, thumb = null, label = null) {
   const info = await probe(file);
-  clips[which] = { file, ...info };
+  clips[which] = { file, label, ...info };
   const name = which === "A" ? ui.nameA : ui.nameB;
   card(which).classList.add("ok");
   name.textContent = `${label || file.name}${info.duration ? ` · ${fmtSec(info.duration)}` : ""}`;
@@ -329,25 +331,27 @@ async function run(args, from, to, label) {
 const rm = async name => { try { await ffmpeg.deleteFile(name); } catch {} };
 
 // ---------- the mosh ----------
-async function doMosh() {
-  if (busy || prepping || !clips.A || !clips.B) return;
-  busy = true; document.body.classList.add("busy");
-  ui.mosh.disabled = true; ui.randBoth.disabled = true; ui.save.hidden = true;
-  const inA = `a${extOf(clips.A.file.name)}`, inB = `b${extOf(clips.B.file.name)}`;
+// The whole pipeline on two files: encode → delete the keyframe at the cut → sound → MP4.
+// Used by MOSH and by DAISY (new links, GROW, MASTER). Returns { blob, w, h, duration, keepA }.
+//   keepA: seconds of A · width: 480 (DAISY links 360) · vf: a picture filter (KEEP COLOR)
+async function moshFiles(fileA, fileB, { keepA, width = 480, vf = null, from = 0, to = 1 } = {}) {
+  const span = f => from + (to - from) * f;
+  const [infoA, infoB] = await Promise.all([probe(fileA), probe(fileB)]);
+  const inA = `a${extOf(fileA.name || "a.mp4")}`, inB = `b${extOf(fileB.name || "b.mp4")}`;
   try {
     await loadFFmpeg();
-    setProgress(0.02, "READING CLIPS");
-    await ffmpeg.writeFile(inA, await fetchFile(clips.A.file));
-    await ffmpeg.writeFile(inB, await fetchFile(clips.B.file));
+    setProgress(span(0.02), "READING CLIPS");
+    await ffmpeg.writeFile(inA, await fetchFile(fileA));
+    await ffmpeg.writeFile(inB, await fetchFile(fileB));
 
     // 1-2. scale, concat, MPEG-4 AVI with one keyframe at the cut
-    const size = targetSize(clips.A.width, clips.A.height);
-    const keepA = Math.min(+ui.keepA.value, clips.A.duration || +ui.keepA.value);
-    await run(encodeArgs({ inA, inB, keepA, w: size.w, h: size.h }), 0.04, 0.5, "ENCODING");
+    const size = targetSize(infoA.width, infoA.height, width);
+    const kA = Math.max(1 / 30, Math.min(keepA, infoA.duration || keepA));
+    await run(encodeArgs({ inA, inB, keepA: kA, w: size.w, h: size.h }), span(0.04), span(0.5), "ENCODING");
     await rm(inA); await rm(inB);
 
     // 3-4. remove the I-frames in JavaScript
-    setProgress(0.5, "MOSHING");
+    setProgress(span(0.5), "MOSHING");
     const joined = await ffmpeg.readFile("joined.avi");
     await rm("joined.avi");
     const { data, stats } = moshAvi(joined);
@@ -359,42 +363,68 @@ async function doMosh() {
     // The sound, frame by frame in the same order as the moshed picture
     let wav = null;
     try {
-      setProgress(0.51, "SOUND");
-      await ffmpeg.writeFile("mosh.wav", await buildMoshAudio(audio(), clips.A.file, clips.B.file, framesOf(keepA), order));
+      setProgress(span(0.51), "SOUND");
+      await ffmpeg.writeFile("mosh.wav", await buildMoshAudio(audio(), fileA, fileB, framesOf(kA), order));
       wav = "mosh.wav";
     } catch (e) {
       log(`no sound: ${e.message || e}`);
     }
 
     // 5. back to a normal H.264 MP4 (+ AAC sound)
-    await run(decodeArgs("moshed.avi", "mosh.mp4", wav), 0.52, 0.99, "RENDERING");
+    await run(decodeArgs("moshed.avi", "mosh.mp4", wav, { vf }), span(0.52), span(0.99), "RENDERING");
     await rm("moshed.avi"); await rm("mosh.wav");
     const mp4 = await ffmpeg.readFile("mosh.mp4");
     await rm("mosh.mp4");
+    return { blob: new Blob([mp4.buffer], { type: "video/mp4" }), w: size.w, h: size.h, duration: stats.kept / FPS, keepA: kA, infoA, infoB };
+  } catch (e) {
+    if (ffmpeg) for (const f of [inA, inB, "joined.avi", "moshed.avi", "mosh.wav", "mosh.mp4"]) await rm(f);
+    throw e;
+  }
+}
 
-    if (result) URL.revokeObjectURL(result.url);
-    const blob = new Blob([mp4.buffer], { type: "video/mp4" });
-    result = { blob, url: URL.createObjectURL(blob), name: `mosh-${Date.now()}.mp4`, w: size.w, h: size.h };
-    ui.out.src = result.url; ui.save.hidden = false;
+// Make something the current result: SAVE saves it, the screen plays it (the pads take up to
+// 8 s; longer things, like a rendered chain, play as a plain video)
+async function showResult(blob, { w, h, duration, name = `mosh-${Date.now()}.mp4`, label = "" }) {
+  if (result) URL.revokeObjectURL(result.url);
+  result = { blob, url: URL.createObjectURL(blob), name, w, h };
+  ui.out.src = result.url; ui.save.hidden = false;
+  if (duration > PAD_MAX + 0.05) { ui.out.hidden = true; pads.previewVideo(blob, label); return true; }
+  const ok = await pads.loadMoshed(new File([blob], name, { type: "video/mp4" }), w, h);
+  ui.out.hidden = ok;
+  if (!ok) ui.out.play().catch(() => {});
+  return ok;
+}
+
+// One lock for everything that uses the engine for a while (MOSH, DAISY)
+async function lock(fn) {
+  if (busy || prepping) throw new Error("wait: something is still rendering");
+  busy = true; document.body.classList.add("busy"); refresh();
+  try { return await fn(); }
+  finally { busy = false; document.body.classList.remove("busy"); refresh(); }
+}
+
+async function doMosh() {
+  if (busy || prepping || !clips.A || !clips.B) return;
+  ui.save.hidden = true;
+  let out = null;
+  try {
+    out = await lock(() => moshFiles(clips.A.file, clips.B.file, { keepA: +ui.keepA.value }));
     setProgress(1, "DONE");
   } catch (e) {
     console.error(e);
     log(`ERROR: ${e.message || e}`);
     setProgress(0, `ERROR: ${(e.message || e).toString().slice(0, 60)}`);
-    if (ffmpeg) for (const f of [inA, inB, "joined.avi", "moshed.avi", "mosh.mp4"]) await rm(f);
-  } finally {
-    busy = false; document.body.classList.remove("busy");
-    ui.mosh.disabled = !clips.A || !clips.B;
-    ui.randBoth.disabled = false;
+    return;
   }
-  // The finished mosh goes onto the pads, where it plays on loop (the pad screen is the
-  // player). If that fails, fall back to the plain video player.
-  if (result && ui.out.src === result.url && !result.onPads) {
-    result.onPads = true;
-    const ok = await pads.loadMoshed(new File([result.blob], result.name, { type: "video/mp4" }), result.w, result.h);
-    ui.out.hidden = ok;
-    if (!ok) ui.out.play().catch(() => {});
-  }
+  // Into the bank (with its sources, so DAISY can re-render it), then onto the screen
+  try {
+    const thumb = await makeThumb(out.blob);
+    await bank.add({ kind: "mosh", label: `${clips.A.label || clips.A.file.name} × ${clips.B.label || clips.B.file.name}`.slice(0, 80),
+      blob: out.blob, thumb, w: out.w, h: out.h, duration: out.duration,
+      settings: { keepA: out.keepA }, sources: { A: clips.A.file, B: clips.B.file } });
+    daisy.refreshBank();
+  } catch (e) { log(`bank: ${e.message || e}`); }
+  await showResult(out.blob, { ...out, label: "mosh" });
 }
 
 // SAVE: if anything is set on the pads (COLOR, GLITCH, PITCH, REV), the saved video is the mosh
@@ -488,6 +518,41 @@ const layout = new Layout({
   device: $("device"), rotate: $("rotate"), toggle: $("portraitMode"), anyway: $("rotateAnyway"),
   onFit: (s, turned) => log(`layout: ${innerWidth}x${innerHeight}${turned ? " turned" : ""}, scale ${s.toFixed(3)}, smallest text ${(25 * s).toFixed(1)}px`),
 });
+
+// ---------- DAISY CHAIN ----------
+// A random GifCities clip, ready to mosh: { file, label }
+async function randomGifFile() {
+  await loadIndex();
+  const g = randomGif(null, randomVibe());
+  if (!g) throw new Error("the GifCities index is empty");
+  await loadFFmpeg();
+  log(`gifcities: ${g.id} [${g.v}: ${g.t[0]}]`);
+  return { file: await prepareGif(ffmpeg, g), label: `${g.v} · ${g.t[0]}` };
+}
+
+// The last picture of a clip, as a 1 s still clip (GROW grows each link out of the last one's tail)
+async function tailStill(blob) {
+  await loadFFmpeg();
+  await ffmpeg.writeFile("tail.mp4", new Uint8Array(await blob.arrayBuffer()));
+  let ret = await ffmpeg.exec(["-sseof", "-0.25", "-i", "tail.mp4", "-frames:v", "1", "-update", "1", "-y", "tail.png"]);
+  await rm("tail.mp4");
+  if (ret !== 0) throw new Error("couldn't grab the tail frame");
+  ret = await ffmpeg.exec(["-loop", "1", "-i", "tail.png", "-t", "1", "-r", String(FPS),
+    "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p", "-c:v", "libx264", "-preset", "ultrafast", "-y", "tailA.mp4"]);
+  await rm("tail.png");
+  if (ret !== 0) throw new Error("couldn't make the tail clip");
+  const data = await ffmpeg.readFile("tailA.mp4");
+  await rm("tailA.mp4");
+  return new File([data], `tail-${Date.now()}.mp4`, { type: "video/mp4" });
+}
+
+const daisy = new Daisy($("daisy"), {
+  bank, makeThumb, layout, log, setProgress, lock, moshFiles, randomGifFile, tailStill, showResult,
+  ffmpeg: async () => { await loadFFmpeg(); return ffmpeg; }, run, rm, audio,
+  toSlot: (which, item) => setClip(which, new File([item.blob], `${item.id}.mp4`, { type: "video/mp4" }), null, item.label),
+  toPad: (item, url) => pads.arm(new File([item.blob], `${item.id}.mp4`, { type: "video/mp4" }), item.label, url),
+});
+$("daisyBtn").addEventListener("click", () => daisy.toggle());
 if (!field.ok) log(`background off: ${field.error}`);
 
 // Installable, and the engine is cached after the first run. When a new version of the

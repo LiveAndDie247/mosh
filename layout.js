@@ -38,7 +38,14 @@ export class Layout {
     const turned = portrait;                       // portrait + "rotate": the device lies on its side
     const s = turned ? Math.min(W / DESIGN_H, H / DESIGN_W) : Math.min(W / DESIGN_W, H / DESIGN_H);
     this.device.style.transform = `${turned ? "rotate(90deg) " : ""}scale(${s})`;
+    this.scale = s; this.turned = turned;
     const key = `${W}x${H}${turned}`;
-    if (key !== this.lastKey) { this.lastKey = key; this.scale = s; this.onFit?.(s, turned); }
+    if (key !== this.lastKey) { this.lastKey = key; this.onFit?.(s, turned); }
+  }
+
+  // A finger movement on the screen (CSS px) → the same movement inside the device (design px)
+  toLocal(dx, dy) {
+    const s = this.scale || 1;
+    return this.turned ? { x: dy / s, y: -dx / s } : { x: dx / s, y: dy / s };
   }
 }

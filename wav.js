@@ -19,6 +19,28 @@ export async function buildMoshAudio(ac, fileA, fileB, nA, order, fps = 30) {
   return encodeWav(L, R, sr);
 }
 
+// A DAISY CHAIN's sound: the links' sounds laid end to end (each cut or padded to exactly its
+// frame count), then rebuilt in the moshed frame order (so BLOOM and SOUP are heard too).
+// files: the links; frames: frame count of each; order: original frame of each output frame.
+export async function buildChainAudio(ac, files, frames, order, fps = 30) {
+  if (!ac) throw new Error("Web Audio isn't available");
+  const bufs = await Promise.all(files.map(f => decode(ac, f)));
+  if (!bufs.some(Boolean)) throw new Error("no link has sound");
+  const sr = ac.sampleRate, per = sr / fps;
+  const starts = frames.reduce((a, n, i) => (a.push(i ? a[i - 1] + frames[i - 1] : 0), a), []);
+  const linkOf = fi => { let i = 0; while (i + 1 < starts.length && starts[i + 1] <= fi) i++; return i; };
+  const len = Math.round(order.length * per);
+  const L = new Float32Array(len), R = new Float32Array(len);
+  order.forEach((fi, i) => {
+    const li = linkOf(fi), buf = bufs[li];
+    if (!buf) return;
+    const l = buf.getChannelData(0), r = buf.numberOfChannels > 1 ? buf.getChannelData(1) : l;
+    const from = Math.round((fi - starts[li]) * per), to = Math.round(i * per), n = Math.round((i + 1) * per) - to;
+    for (let j = 0; j < n && from + j < l.length && to + j < len; j++) { L[to + j] = l[from + j]; R[to + j] = r[from + j]; }
+  });
+  return encodeWav(L, R, sr);
+}
+
 async function decode(ac, file) {
   try { return await ac.decodeAudioData(await file.arrayBuffer()); } catch { return null; }
 }
