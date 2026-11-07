@@ -1,0 +1,33 @@
+# Refresh the GifCities index (clips/gifcities/manifest.json) on demand and once a month.
+# The index only lists GIFs; the app loads each GIF live from blob.gifcities.org.
+name: GifCities index
+
+on:
+  workflow_dispatch:
+    inputs:
+      per_term:
+        description: "GIFs per search term"
+        default: "60"
+  schedule:
+    - cron: "17 5 1 * *"
+
+permissions:
+  contents: write
+
+jobs:
+  pull:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build the index
+        run: node tools/gifcities-pull.mjs "${{ github.event.inputs.per_term || '60' }}"
+      - name: Commit it if it changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add clips/gifcities/manifest.json
+          git diff --cached --quiet || git commit -m "Refresh GifCities index"
+          git push

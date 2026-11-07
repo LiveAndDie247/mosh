@@ -23,19 +23,40 @@
   </header>
 
   <section class="pick">
-    <label class="file" id="cardA">
-      <input type="file" id="fileA" accept="video/*">
-      <span class="tag">A</span>
-      <span class="what">THE PICTURE<br><small>gets smeared</small></span>
-      <span class="name" id="nameA">tap to pick</span>
-    </label>
-    <label class="file" id="cardB">
-      <input type="file" id="fileB" accept="video/*">
-      <span class="tag">B</span>
-      <span class="what">THE MOTION<br><small>drags it around</small></span>
-      <span class="name" id="nameB">tap to pick</span>
-    </label>
+    <div class="slot">
+      <div class="file" id="cardA" data-slot="A">
+        <span class="tag">A</span>
+        <span class="what">THE PICTURE<br><small>gets smeared</small></span>
+        <div class="thumb" id="thumbA"></div>
+        <span class="name" id="nameA">empty</span>
+      </div>
+      <div class="slot-btns">
+        <button data-act="gallery" data-slot="A">GALLERY</button>
+        <button data-act="gif" data-slot="A">GIFCITIES</button>
+        <button data-act="dice" data-slot="A" aria-label="Random GIF for A">🎲</button>
+      </div>
+      <input type="file" id="fileA" accept="video/*" hidden>
+    </div>
+    <div class="slot">
+      <div class="file" id="cardB" data-slot="B">
+        <span class="tag">B</span>
+        <span class="what">THE MOTION<br><small>drags it around</small></span>
+        <div class="thumb" id="thumbB"></div>
+        <span class="name" id="nameB">empty</span>
+      </div>
+      <div class="slot-btns">
+        <button data-act="gallery" data-slot="B">GALLERY</button>
+        <button data-act="gif" data-slot="B">GIFCITIES</button>
+        <button data-act="dice" data-slot="B" aria-label="Random GIF for B">🎲</button>
+      </div>
+      <input type="file" id="fileB" accept="video/*" hidden>
+    </div>
   </section>
+
+  <div class="randrow">
+    <button id="randBoth" class="rand">🎲 RANDOM BOTH</button>
+    <label class="chk"><input type="checkbox" id="randSettings" checked> random settings</label>
+  </div>
 
   <p class="warn" id="warn" hidden></p>
 
