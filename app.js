@@ -5,6 +5,8 @@ import { fetchFile } from "./vendor/util/index.js";
 import { moshAvi } from "./mosh.js";
 import { encodeArgs, decodeArgs, targetSize, MAX_SECONDS } from "./pipeline.js";
 
+const BUILD = 4;                          // shown in the LOG, so a screenshot tells which version ran
+
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
 const CORE_BASE = `https://cdn.jsdelivr.net/npm/@ffmpeg/core@${CORE_VERSION}/dist/esm`;
@@ -228,6 +230,15 @@ ui.mosh.addEventListener("click", doMosh);
 ui.save.addEventListener("click", save);
 updateLabels();
 refresh();
+log(`MOSH build ${BUILD}`);
 
-// Installable, and the engine is cached after the first run
-if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+// Installable, and the engine is cached after the first run. When a new version of the
+// service worker takes over (after a deploy), reload once so the new app code runs.
+if ("serviceWorker" in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (hadController && !reloaded && !busy) { reloaded = true; location.reload(); }
+  });
+  navigator.serviceWorker.register("sw.js").then(r => r.update()).catch(() => {});
+}

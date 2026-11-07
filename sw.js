@@ -1,7 +1,7 @@
 // Service worker: makes MOSH installable and caches the ~31 MB ffmpeg engine after the
 // first run, so later runs start fast. App files: network first (so updates arrive),
 // falling back to the cache offline. The engine on jsDelivr: cache first (it's versioned).
-const CACHE = "mosh-v1";
+const CACHE = "mosh-v2";
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(["./", "index.html", "style.css", "app.js", "mosh.js", "pipeline.js", "manifest.webmanifest"])).catch(() => {}));
@@ -32,7 +32,9 @@ self.addEventListener("fetch", e => {
     e.respondWith((async () => {
       const cache = await caches.open(CACHE);
       try {
-        const res = await fetch(req);
+        // Always revalidate with the server: GitHub Pages lets browsers cache files for 10
+        // minutes, which would otherwise keep serving the old app after a deploy.
+        const res = await fetch(req.url, { cache: "no-cache", credentials: "same-origin" });
         if (res.ok) cache.put(req, res.clone());
         return res;
       } catch {
