@@ -264,3 +264,55 @@ body.sheet-open { overflow: hidden; }
 .gcredit { font-size: 10px; color: var(--b); text-align: center; font-style: italic; }
 
 @media (prefers-reduced-motion: reduce) { body.busy .big, .t-rec.rec-on, .rec-dot, .daisy.too-long .dz-read { animation: none; } }
+
+/* ---------- v3 (Nov 2026): dressed like liveanddie.xyz now — blinking stars, bevel/ridge frames,
+   marching ants, Times. AUTO MOSH first; everything else folds away. ---------- */
+html { background: #000 url(icons/stars.gif); background-size: 240px 240px; }
+body { font-size: 15px; line-height: 1.4; color: #dcdcff; background: transparent; }
+body::before { opacity: .18; }
+main { max-width: 560px; gap: 12px; border: 4px ridge #8888aa; background: rgba(0, 0, 0, .55); margin: 10px auto; padding: 10px 10px max(24px, env(safe-area-inset-bottom)); }
+@media (max-width: 600px) { main { margin: 4px; padding: 8px 6px 24px; } }
+.ants { height: 6px; background: url(icons/ants.gif) repeat-x; image-rendering: pixelated; }
+.mast { border: 3px double #8888aa; padding: 12px 8px 10px; text-align: center; background: #000; }
+.mast h1 { font: 700 46px/1 var(--sf); letter-spacing: .14em; color: var(--r); }
+.mast .sub { font-size: 14px; color: #dcdcdc; font-style: italic; text-shadow: none; margin-top: 4px; }
+.box { border: 2px outset #8888aa; background: #000; }
+.box-h { border-bottom: 2px groove #8888aa; color: var(--r); font: 700 22px/1.2 var(--sf); text-align: center; padding: 8px 6px; letter-spacing: .06em; }
+.box-b { padding: 10px 8px 12px; display: flex; flex-direction: column; gap: 8px; }
+button { font-size: 13px; }
+.slot-btns button, .transport button, .seg button, .fn, .fx-head button, .dz-sel button, .dz-grid button, .dz-grid3 button, .dz-join, .gvibes button, .gclose, .gshuffle, .gmore {
+  font-size: 12px; border: 2px outset #8888aa; color: #c8c8ff; }
+.slot-btns button:active, .transport button:active, .seg button:active, .fn:active { border-style: inset; }
+.seg button.on, .fn.on, .t-play.on, .gvibes button.on, .dz-loop.on, .colors button.on { background: var(--r); border: 2px inset var(--r); color: #000 !important; font-weight: 700; text-shadow: none; }
+.a-row { display: grid; grid-template-columns: 62px 1fr; gap: 6px; align-items: center; }
+.a-lab { font: 700 12px var(--tt); color: var(--r); letter-spacing: .06em; }
+.a-vibes { display: flex; gap: 3px; overflow-x: auto; scrollbar-width: none; }
+.a-vibes::-webkit-scrollbar { display: none; }
+.a-vibes button { flex: 0 0 auto; padding: 2px 10px; }
+.a-len, .a-style { grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); }
+.a-ratio { grid-template-columns: repeat(3, 1fr); }
+.a-own { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.a-own button { font: 700 12px var(--tt); border: 2px outset #8888aa; color: #c8c8ff; padding: 2px 10px; }
+.a-ownlist, .a-songname { font-size: 13px; font-style: italic; color: #b8b8d8; flex: 1 1 140px; min-width: 0; word-break: break-word; }
+.a-bpm, .a-off { display: flex; align-items: center; gap: 4px; }
+.a-bpm output, .a-off output { font-size: 15px; min-width: 64px; text-align: center; padding: 6px 4px; }
+.a-bpm button { font: 700 12px var(--tt); border: 2px outset #8888aa; color: #c8c8ff; min-width: 48px; }
+.a-tap { flex: 1; }
+.a-off input { flex: 1; }
+.a-go { margin-top: 4px; font-size: 32px; animation: bord 1s steps(1) infinite; }
+.a-note { font-size: 12px; font-style: italic; color: #9a9ab8; text-align: center; }
+.big { font-size: 34px; }
+.progress { border: 2px inset #8888aa; }
+#status { font-size: 12px; color: #fff; }
+.result { border: 4px ridge #8888aa; }
+.screen-wrap { border: 2px inset #8888aa; }
+.save { font-size: 18px; min-height: 52px; border: 3px double var(--r); color: var(--r); }
+.save:hover:not(:disabled) { background: var(--r); color: #000; }
+.sec summary { font-size: 16px; border: 2px outset #8888aa; text-shadow: none; }
+.sec[open] summary { border-style: inset; }
+.sec-body, .log pre { border: 2px solid #55556e; border-top: 0; }
+.file { border-style: ridge; border-width: 3px; }
+.controls { border: 3px double #8888aa; }
+.foot { font-size: 13px; color: #b8b8d8; }
+.foot a { color: #9a9aff; }
+@media (prefers-reduced-motion: reduce) { html { background-image: url(icons/stars.png); } .a-go { animation: none; } }

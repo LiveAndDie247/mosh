@@ -4,95 +4,95 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#000000">
-<meta name="description" content="Real I-frame-removal datamosh, entirely in your phone's browser.">
+<meta name="description" content="Real I-frame-removal datamosh, entirely in your phone's browser. AUTO MOSH turns a pile of GIFs into a minute-long moshed clip on the beat.">
 <title>MOSH</title>
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
-<!-- Behind everything, dim: the datamosh field, then (after a mosh) the moshed video -->
-<canvas id="bg" aria-hidden="true"></canvas>
-<canvas id="bgmosh" aria-hidden="true" hidden></canvas>
-<!-- Over it: the liveanddie.xyz grid, cube, flash and vignette (grid.js) -->
-<canvas id="grid" aria-hidden="true"></canvas>
-
 <main>
-  <header>
-    <h1 class="sr-only">MOSH</h1>
-    <canvas id="logo" aria-hidden="true"></canvas>
-    <p class="sub">I-FRAME REMOVAL // REAL DATAMOSH</p>
+  <div class="ants"></div>
+  <header class="mast">
+    <h1>MOSH</h1>
+    <p class="sub">real datamosh · runs on your phone · nothing is uploaded</p>
   </header>
-  <div class="hr">* * *</div>
+  <div class="ants"></div>
 
-  <section class="pick">
-    <div class="slot">
-      <div class="file" id="cardA" role="button" tabindex="0" aria-label="Clip A: pick from the gallery">
-        <div class="thumb" id="thumbA"></div>
-        <span class="tag">A</span>
-        <span class="what">THE PICTURE<br><small>gets smeared</small></span>
-        <span class="name" id="nameA">tap to pick</span>
-      </div>
-      <div class="slot-btns">
-        <button data-act="gallery" data-slot="A">GALLERY</button>
-        <button data-act="gif" data-slot="A">GIFCITIES</button>
-        <button data-act="dice" data-slot="A" aria-label="Random GIF for A">🎲</button>
-      </div>
-      <input type="file" id="fileA" accept="video/*,image/gif" hidden>
-    </div>
-    <div class="slot">
-      <div class="file" id="cardB" role="button" tabindex="0" aria-label="Clip B: pick from the gallery">
-        <div class="thumb" id="thumbB"></div>
-        <span class="tag">B</span>
-        <span class="what">THE MOTION<br><small>drags it around</small></span>
-        <span class="name" id="nameB">tap to pick</span>
-      </div>
-      <div class="slot-btns">
-        <button data-act="gallery" data-slot="B">GALLERY</button>
-        <button data-act="gif" data-slot="B">GIFCITIES</button>
-        <button data-act="dice" data-slot="B" aria-label="Random GIF for B">🎲</button>
-      </div>
-      <input type="file" id="fileB" accept="video/*,image/gif" hidden>
-    </div>
+  <!-- 1. AUTO: the main thing -->
+  <section class="box">
+    <h2 class="box-h">AUTO MOSH</h2>
+    <div id="auto" class="box-b"></div>
   </section>
-
-  <div class="randrow">
-    <button id="randBoth" class="rand">🎲 RANDOM BOTH</button>
-    <label class="chk"><input type="checkbox" id="randSettings" checked> random settings</label>
-    <label class="chk"><input type="checkbox" id="autoMosh"> auto-MOSH</label>
-  </div>
-
-  <p class="warn" id="warn" hidden></p>
-
-  <section class="controls">
-    <div class="ctl">
-      <div class="row"><label for="keepA">KEEP OF A</label><output id="keepAOut">2.0 s</output></div>
-      <input type="range" id="keepA" min="0.3" max="20" step="0.1" value="2">
-    </div>
-  </section>
-
-  <button id="mosh" class="big" disabled>MOSH</button>
 
   <div class="progress" aria-live="polite">
     <div class="bar" id="bar"></div>
-    <span id="status">PICK TWO CLIPS</span>
+    <span id="status">READY</span>
   </div>
 
-  <!-- The result: the live screen (pads + FX play here); a plain video only if that can't run -->
+  <!-- 2. The result: plays here, then SAVE -->
   <section id="p-play" class="result" hidden></section>
   <video id="out" controls playsinline loop hidden></video>
   <button id="save" class="save" hidden>SAVE / SHARE</button>
 
-  <div class="hr">* * *</div>
-  <!-- Everything else: collapsible, closed by default, remembered -->
+  <!-- 3. Everything else: folded away, remembered -->
+  <details class="sec" data-sec="manual"><summary>A × B (MANUAL)</summary>
+    <div class="sec-body">
+      <section class="pick">
+        <div class="slot">
+          <div class="file" id="cardA" role="button" tabindex="0" aria-label="Clip A: pick from the gallery">
+            <div class="thumb" id="thumbA"></div>
+            <span class="tag">A</span>
+            <span class="what">THE PICTURE<br><small>gets smeared</small></span>
+            <span class="name" id="nameA">tap to pick</span>
+          </div>
+          <div class="slot-btns">
+            <button data-act="gallery" data-slot="A">PHONE</button>
+            <button data-act="gif" data-slot="A">GIFS</button>
+            <button data-act="dice" data-slot="A" aria-label="Random GIF for A">🎲</button>
+          </div>
+          <input type="file" id="fileA" accept="video/*,image/gif" hidden>
+        </div>
+        <div class="slot">
+          <div class="file" id="cardB" role="button" tabindex="0" aria-label="Clip B: pick from the gallery">
+            <div class="thumb" id="thumbB"></div>
+            <span class="tag">B</span>
+            <span class="what">THE MOTION<br><small>drags it around</small></span>
+            <span class="name" id="nameB">tap to pick</span>
+          </div>
+          <div class="slot-btns">
+            <button data-act="gallery" data-slot="B">PHONE</button>
+            <button data-act="gif" data-slot="B">GIFS</button>
+            <button data-act="dice" data-slot="B" aria-label="Random GIF for B">🎲</button>
+          </div>
+          <input type="file" id="fileB" accept="video/*,image/gif" hidden>
+        </div>
+      </section>
+      <div class="randrow">
+        <button id="randBoth" class="rand">🎲 RANDOM BOTH</button>
+        <label class="chk"><input type="checkbox" id="randSettings" checked> random settings</label>
+        <label class="chk"><input type="checkbox" id="autoMosh"> go</label>
+      </div>
+      <p class="warn" id="warn" hidden></p>
+      <section class="controls">
+        <div class="ctl">
+          <div class="row"><label for="keepA">KEEP OF A</label><output id="keepAOut">2.0 s</output></div>
+          <input type="range" id="keepA" min="0.3" max="20" step="0.1" value="2">
+        </div>
+      </section>
+      <button id="mosh" class="big" disabled>MOSH</button>
+    </div>
+  </details>
   <details class="sec" data-sec="pads"><summary>PADS</summary><div id="p-pads" class="sec-body"></div></details>
   <details class="sec" data-sec="fx"><summary>FX</summary><div id="p-fx" class="sec-body"></div></details>
-  <details class="sec" data-sec="chain"><summary>CHAIN</summary><div id="daisy" class="sec-body daisy"></div></details>
+  <details class="sec" data-sec="chain"><summary>BANK + CHAIN</summary><div id="daisy" class="sec-body daisy"></div></details>
   <details class="sec log" data-sec="log"><summary>LOG</summary><pre id="log"></pre></details>
 
-  <p class="foot"><span>MOSH ¤ runs entirely on your phone ¤ nothing is uploaded</span><br>First run downloads the ffmpeg engine (~31 MB).<br><a class="home" href="https://liveanddie.xyz/">← liveanddie.xyz</a></p>
+  <div class="ants"></div>
+  <p class="foot">First run downloads the ffmpeg engine (~31 MB), then it's cached.<br>GIFs from <a href="https://gifcities.org" target="_blank" rel="noopener">GifCities</a> (Internet Archive).<br><a class="home" href="https://liveanddie.xyz/">« liveanddie.xyz</a></p>
 </main>
-<script type="module" src="app.js"></script>
+<script src="stars.js" defer></script>
+<script type="module" src="app.js?v=3"></script>
 </body>
 </html>

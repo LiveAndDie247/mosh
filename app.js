@@ -1,6 +1,6 @@
 // MOSH: the UI and the ffmpeg.wasm plumbing. The datamosh itself is in mosh.js, the ffmpeg
-// command lines in pipeline.js, the sound in wav.js. The living background is field.js, the
-// logo logo.js, the live pads pads.js + live.js, GifCities gif.js.
+// command lines in pipeline.js, the sound in wav.js. AUTO MOSH is auto.js + autoui.js (+ beat.js);
+// the background is the site's starfield (stars.js); the live pads pads.js + live.js, GifCities gif.js.
 import { FFmpeg } from "./vendor/ffmpeg/index.js";
 import { fetchFile } from "./vendor/util/index.js";
 import { moshAvi } from "./mosh.js";
@@ -9,14 +9,12 @@ import { PAD_MAX } from "./clipdecode.js";
 import { bank, makeThumb } from "./bank.js";
 import { Daisy } from "./daisy.js";
 import { buildMoshAudio } from "./wav.js";
-import { Field, patternImage } from "./field.js";
-import { Logo } from "./logo.js";
-import { Grid } from "./grid.js";
+import { initAuto } from "./autoui.js";
 import { sfx, audio } from "./sfx.js";
 import { PadMode } from "./pads.js";
 import { GifSheet, loadIndex, randomGif, randomVibe, prepareGif, gifURL, gifArgs } from "./gif.js";
 
-const BUILD = 17;                         // shown in the LOG, so a screenshot tells which version ran
+const BUILD = 18;                         // shown in the LOG, so a screenshot tells which version ran
 
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
@@ -94,23 +92,12 @@ function copyCanvas(src) {
   return c;
 }
 
-// ---------- the living background and the logo ----------
-let swipe = [1, 1];                       // last drag direction: the logo bursts this way
-const field = new Field($("bg"), { onSwipe: (dx, dy) => { swipe = [dx, dy]; } });
-field.setImage(patternImage());
-const logo = new Logo($("logo"));
-new Grid($("grid"));
-
-// MOSH is the "pad hit": a shockwave through the background and a hard burst on the logo.
-// While it's held the logo keeps melting and never heals.
-ui.mosh.addEventListener("pointerdown", () => {
-  audio();
-  logo.hold(true);
-  logo.burst(...swipe);
-  field.shock(innerWidth / 2, innerHeight / 2, 1);
-  sfx.shock();
-});
-for (const t of ["pointerup", "pointercancel", "pointerleave"]) ui.mosh.addEventListener(t, () => logo.hold(false));
+// ---------- the background: the site's blinking stars (stars.js); hits throw bursts ----------
+const burst = (k = 1) => window.GateStars?.burst(innerWidth / 2, innerHeight / 2, k);
+const field = { setImage() {}, retire() {}, shock: () => burst(1), ok: true };
+const logo = { hold() {}, burst() {} };
+let swipe = [1, 1];
+ui.mosh.addEventListener("pointerdown", () => { audio(); burst(2); sfx.shock(); });
 
 // LIVE PADS: the finished mosh lands here and plays on loop. Every pad hit is a shockwave + a
 // logo burst; their MOSH keeps the logo melting.
@@ -122,25 +109,7 @@ const pads = new PadMode({ play: $("p-play"), fx: $("p-fx"), pads: $("p-pads") }
   onFrame: showBehind,
 });
 
-// Once a mosh is on the pads, it IS the page background: every frame of the pad screen (pads,
-// MOSH, COLOR and GLITCH included) is copied to a full-screen canvas behind the page, and the
-// drag-to-smear field retires.
-const bgm = $("bgmosh");
-let bgCtx = null;
-function showBehind(screen) {
-  // the pad screen (a canvas drawn 3x) or a video playing a long chain
-  const isVideo = screen.tagName === "VIDEO";
-  const sw = isVideo ? screen.videoWidth / 2 : screen.width / 3, sh = isVideo ? screen.videoHeight / 2 : screen.height / 3;
-  if (!sw || !sh) return;
-  if (!bgCtx) {
-    bgCtx = bgm.getContext("2d", { alpha: false });
-    bgm.hidden = false;
-    field.retire();
-  }
-  const w = Math.round(sw), h = Math.round(sh);
-  if (bgm.width !== w || bgm.height !== h) { bgm.width = w; bgm.height = h; }
-  bgCtx.drawImage(screen, 0, 0, w, h);
-}
+function showBehind() {}
 
 // ---------- picking clips ----------
 // A clip lands in a slot: from the gallery (a video, or a GIF that gets converted) or from
@@ -249,7 +218,7 @@ function refresh() {
   ui.warn.textContent = msgs.join(" ");
   ui.mosh.disabled = busy || prepping || !clips.A || !clips.B;
   ui.randBoth.disabled = busy || prepping;
-  if (!busy && !prepping) setProgress(0, clips.A && clips.B ? "READY" : "PICK TWO CLIPS");
+  if (!busy && !prepping) setProgress(0, clips.A && clips.B ? "A × B READY" : "READY");
 }
 
 function updateLabels() {
@@ -566,7 +535,10 @@ const daisy = new Daisy($("daisy"), {
   toSlot: (which, item) => setClip(which, new File([item.blob], `${item.id}.mp4`, { type: "video/mp4" }), null, item.label),
   toPad: (item, url) => pads.arm(new File([item.blob], `${item.id}.mp4`, { type: "video/mp4" }), item.label, url),
 });
-if (!field.ok) log(`background off: ${field.error}`);
+initAuto($("auto"), {
+  loadFFmpeg, ffmpeg: () => ffmpeg, run, rm, setProgress, log, lock, showResult, bank, makeThumb, audio, probe,
+  refreshBank: () => daisy.refreshBank(),
+});
 
 // Installable, and the engine is cached after the first run. When a new version of the
 // service worker takes over (after a deploy), reload once so the new app code runs.
