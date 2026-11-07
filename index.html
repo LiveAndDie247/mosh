@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#000000">
+<meta name="description" content="Real I-frame-removal datamosh, entirely in your phone's browser.">
+<title>MOSH</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header>
+    <h1 class="glitch" data-text="MOSH">MOSH</h1>
+    <p class="sub">I-FRAME REMOVAL // REAL DATAMOSH</p>
+  </header>
+
+  <section class="pick">
+    <label class="file" id="cardA">
+      <input type="file" id="fileA" accept="video/*">
+      <span class="tag">A</span>
+      <span class="what">THE PICTURE<br><small>gets smeared</small></span>
+      <span class="name" id="nameA">tap to pick</span>
+    </label>
+    <label class="file" id="cardB">
+      <input type="file" id="fileB" accept="video/*">
+      <span class="tag">B</span>
+      <span class="what">THE MOTION<br><small>drags it around</small></span>
+      <span class="name" id="nameB">tap to pick</span>
+    </label>
+  </section>
+
+  <p class="warn" id="warn" hidden></p>
+
+  <section class="controls">
+    <div class="ctl">
+      <div class="row"><label for="keepA">KEEP OF A</label><output id="keepAOut">2.0 s</output></div>
+      <input type="range" id="keepA" min="0.3" max="20" step="0.1" value="2">
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="bloom">BLOOM</label><output id="bloomOut">off</output></div>
+      <input type="range" id="bloom" min="0" max="30" step="1" value="0">
+    </div>
+    <div class="ctl">
+      <div class="row"><label for="bloomAt">BLOOM STARTS</label><output id="bloomAtOut">25%</output></div>
+      <input type="range" id="bloomAt" min="0" max="100" step="1" value="25">
+    </div>
+  </section>
+
+  <button id="mosh" class="big" disabled>MOSH</button>
+
+  <div class="progress" aria-live="polite">
+    <div class="bar" id="bar"></div>
+    <span id="status">PICK TWO CLIPS</span>
+  </div>
+
+  <video id="out" controls playsinline loop hidden></video>
+  <button id="save" class="save" hidden>SAVE / SHARE</button>
+
+  <details class="log"><summary>LOG</summary><pre id="log"></pre></details>
+  <p class="foot">Runs entirely on your phone. Nothing is uploaded.<br>First run downloads the ffmpeg engine (~31 MB).</p>
+</main>
+<div class="scan" aria-hidden="true"></div>
+<div class="noise" aria-hidden="true"></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>
