@@ -1,6 +1,6 @@
 // MOSH: the UI and the ffmpeg.wasm plumbing. The datamosh itself is in mosh.js, the ffmpeg
-// command lines in pipeline.js. The living background is field.js, the logo logo.js, the paint
-// toolbar paint.js, its sounds sfx.js.
+// command lines in pipeline.js, the sound in wav.js. The living background is field.js, the
+// logo logo.js, the live pads pads.js + live.js.
 import { FFmpeg } from "./vendor/ffmpeg/index.js";
 import { fetchFile } from "./vendor/util/index.js";
 import { moshAvi } from "./mosh.js";
@@ -8,11 +8,10 @@ import { encodeArgs, decodeArgs, targetSize, framesOf, MAX_SECONDS } from "./pip
 import { buildMoshAudio } from "./wav.js";
 import { Field, patternImage } from "./field.js";
 import { Logo } from "./logo.js";
-import { Paint } from "./paint.js";
 import { sfx, audio } from "./sfx.js";
 import { PadMode } from "./pads.js";
 
-const BUILD = 7;                          // shown in the LOG, so a screenshot tells which version ran
+const BUILD = 8;                          // shown in the LOG, so a screenshot tells which version ran
 
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
@@ -61,7 +60,7 @@ function probe(file) {
   });
 }
 
-// One still frame from a clip, as a canvas (for the background and STAMP)
+// One still frame from a clip, as a canvas (for the background)
 function grabFrame(file, at = 0.2) {
   return new Promise(resolve => {
     const v = document.createElement("video");
@@ -82,18 +81,11 @@ function grabFrame(file, at = 0.2) {
   });
 }
 
-// ---------- the living background, the logo, paint ----------
-const field = new Field($("bg"));
-const pattern = patternImage();
-let stampSource = null;                   // Clip B's frame (or A's, or the pattern)
+// ---------- the living background and the logo ----------
 let swipe = [1, 1];                       // last drag direction: the logo bursts this way
-field.setImage(pattern);
+const field = new Field($("bg"), { onSwipe: (dx, dy) => { swipe = [dx, dy]; } });
+field.setImage(patternImage());
 const logo = new Logo($("logo"));
-const paint = new Paint({
-  field,
-  onSwipe: (dx, dy) => { swipe = [dx, dy]; },
-  getStamp: () => stampSource || pattern,
-});
 
 // MOSH is the "pad hit": a shockwave through the background and a hard burst on the logo.
 // While it's held the logo keeps melting and never heals.
@@ -107,9 +99,8 @@ ui.mosh.addEventListener("pointerdown", () => {
 for (const t of ["pointerup", "pointercancel", "pointerleave"]) ui.mosh.addEventListener(t, () => logo.hold(false));
 
 // LIVE PADS: the finished mosh lands here. Every pad hit is a shockwave + a logo burst;
-// their MOSH keeps the logo melting; the paint tools work on the pad screen.
+// their MOSH keeps the logo melting.
 const pads = new PadMode($("pads"), {
-  paint,
   loadFFmpeg: async () => {
     if (busy) throw new Error("wait for the render to finish first");
     await loadFFmpeg();
@@ -135,10 +126,11 @@ async function pick(which, input) {
     updateLabels();
   }
   refresh();
-  // The background becomes Clip A's picture; STAMP uses Clip B's (or A's until B is picked)
-  const frame = await grabFrame(file);
-  if (frame && which === "A") { field.setImage(frame); if (!clips.B) stampSource = frame; }
-  if (frame && which === "B") stampSource = frame;
+  // The background becomes Clip A's picture
+  if (which === "A") {
+    const frame = await grabFrame(file);
+    if (frame) field.setImage(frame);
+  }
 }
 
 function refresh() {

@@ -17,7 +17,7 @@ const ROLL_TIME = 2.0;        // seconds for ROLL to go from 1/4 to 1/32
 export class PadMode {
   constructor(root, opts) {
     this.root = root;
-    this.o = opts;            // { loadFFmpeg, log, onHit, onMosh, paint }
+    this.o = opts;            // { loadFFmpeg, log, onHit, onMosh }
     this.clips = {};
     this.sel = "M";           // the finished mosh
     this.voice = null;
@@ -34,7 +34,7 @@ export class PadMode {
   shell() {
     this.root.innerHTML = `
       <div class="pads-head"><b>LIVE PADS</b></div>
-      <p class="pads-msg">Hit MOSH above: the finished mosh lands here on the pads, with its sound. The paint tools work on it too.</p>`;
+      <p class="pads-msg">Hit MOSH above: the finished mosh lands here on the pads, with its sound.</p>`;
     this.msg = this.root.querySelector(".pads-msg");
   }
   status(text) { if (this.msg) this.msg.textContent = text; }
@@ -94,7 +94,6 @@ export class PadMode {
     this.msg = r.querySelector(".pads-msg");
     const screen = r.querySelector(".live-screen");
     this.engine = new LiveEngine(screen);
-    this.o.paint?.addSurface(screen, this.engine);          // the side tools paint on the pad screen too
 
     // 16 pads
     const grid = r.querySelector(".pad-grid");

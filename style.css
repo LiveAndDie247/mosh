@@ -1,4 +1,4 @@
-/* MOSH: black, VHS, a living mosh field behind everything, one loud paint toolbar */
+/* MOSH: black, VHS, a living mosh field behind everything */
 :root {
   --red: #ff2a3c; --cyan: #19f0ff; --fg: #e8e8e8; --dim: #8a8a8a;
   --panel: rgba(0, 0, 0, 0.75); --hair: 1px solid rgba(255, 255, 255, 0.16);
@@ -111,38 +111,3 @@ video { width: 100%; background: #000; border: var(--hair); }
 .src button { flex: 0 0 auto; padding: 6px 14px; }
 .faders { display: flex; flex-direction: column; gap: 6px; }
 .faders label { display: grid; grid-template-columns: 52px 54px 1fr; align-items: center; font-size: 11px; }
-
-/* ---------- MOSH PAINT: the one loud thing. 90s grey bevels, chunky pixel icons ---------- */
-.paint-tab {
-  position: fixed; left: 0; top: 46%; z-index: 6; width: 46px; height: 54px; padding: 0;
-  background: #c0c0c0; border: 2px solid; border-color: #fff #404040 #404040 #fff; border-left: 0;
-  box-shadow: 2px 2px 0 #000; display: flex; align-items: center; justify-content: center; letter-spacing: 0;
-  transition: left .18s steps(4);
-}
-.paint-tab img { width: 30px; height: 30px; image-rendering: pixelated; }
-body.painting .paint-tab { left: 176px; }
-.paint-bar {
-  position: fixed; left: 0; top: 0; bottom: 0; z-index: 5; width: 176px;
-  padding: max(10px, env(safe-area-inset-top)) 8px max(10px, env(safe-area-inset-bottom));
-  background: #c0c0c0; color: #000; border-right: 2px solid #404040; box-shadow: 3px 0 0 #000;
-  display: flex; flex-direction: column; gap: 8px; overflow-y: auto;
-  transform: translateX(-110%); transition: transform .18s steps(4);
-}
-.paint-bar.open { transform: none; }
-.paint-title { font: 900 13px "Times New Roman", Times, serif; letter-spacing: .12em; text-align: center; padding: 2px 0 4px; border-bottom: 2px groove #fff; }
-.bevel {
-  background: #c0c0c0; color: #000; border: 2px solid; border-color: #fff #404040 #404040 #fff;
-  letter-spacing: .04em; font-size: 10px; padding: 5px 2px; display: flex; flex-direction: column;
-  align-items: center; gap: 3px; text-transform: uppercase; box-shadow: 1px 1px 0 #000;
-}
-.bevel:active, .bevel.on { border-color: #404040 #fff #fff #404040; background: #a9a9a9; box-shadow: none; }
-.bevel img { width: 36px; height: 36px; image-rendering: pixelated; }
-.tool-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.sizes { display: flex; justify-content: space-between; gap: 6px; }
-.size { flex: 1; height: 46px; padding: 0; justify-content: center; }
-.size span { display: block; background: #000; border-radius: 50%; }
-.big-btn { flex-direction: row; justify-content: center; gap: 8px; font-size: 16px; font-weight: 900; padding: 8px 4px; }
-.mini-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.mini img { width: 28px; height: 28px; }
-.mini.muted img { opacity: .35; }
-.tilt-glyph { font-size: 22px; line-height: 28px; }
