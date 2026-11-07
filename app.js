@@ -9,8 +9,9 @@ import { Field, patternImage } from "./field.js";
 import { Logo } from "./logo.js";
 import { Paint } from "./paint.js";
 import { sfx, audio } from "./sfx.js";
+import { PadMode } from "./pads.js";
 
-const BUILD = 5;                          // shown in the LOG, so a screenshot tells which version ran
+const BUILD = 6;                          // shown in the LOG, so a screenshot tells which version ran
 
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
@@ -103,6 +104,19 @@ ui.mosh.addEventListener("pointerdown", () => {
   sfx.shock();
 });
 for (const t of ["pointerup", "pointercancel", "pointerleave"]) ui.mosh.addEventListener(t, () => logo.hold(false));
+
+// LIVE PADS: every pad hit is a shockwave + a logo burst; their MOSH keeps the logo melting
+new PadMode($("pads"), {
+  getClips: () => clips,
+  loadFFmpeg: async () => {
+    if (busy) throw new Error("wait for the render to finish first");
+    await loadFFmpeg();
+    return ffmpeg;
+  },
+  log,
+  onHit: () => { logo.burst(...swipe); field.shock(innerWidth / 2, innerHeight / 2, 0.7); },
+  onMosh: on => logo.hold(on),
+});
 
 // ---------- picking clips ----------
 async function pick(which, input) {
