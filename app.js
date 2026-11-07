@@ -12,7 +12,7 @@ import { sfx, audio } from "./sfx.js";
 import { PadMode } from "./pads.js";
 import { GifSheet, loadIndex, randomGif, randomVibe, prepareGif, gifURL, gifArgs } from "./gif.js";
 
-const BUILD = 12;                         // shown in the LOG, so a screenshot tells which version ran
+const BUILD = 13;                         // shown in the LOG, so a screenshot tells which version ran
 
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
@@ -133,8 +133,9 @@ function showBehind(screen) {
     bgm.hidden = false;
     field.retire();
   }
-  if (bgm.width !== screen.width || bgm.height !== screen.height) { bgm.width = screen.width; bgm.height = screen.height; }
-  bgCtx.drawImage(screen, 0, 0);
+  const w = Math.round(screen.width / 3), h = Math.round(screen.height / 3);   // the screen is drawn 3x; the background doesn't need that
+  if (bgm.width !== w || bgm.height !== h) { bgm.width = w; bgm.height = h; }
+  bgCtx.drawImage(screen, 0, 0, w, h);
 }
 
 // ---------- picking clips ----------
@@ -391,15 +392,60 @@ async function doMosh() {
   }
 }
 
+// SAVE: if anything is set on the pads (COLOR, GLITCH, PITCH, REV), the saved video is the mosh
+// played once through all of it, recorded live; otherwise the clean render. Recordings that
+// come out as WebM are turned into MP4 with ffmpeg.wasm, so they share and play everywhere.
+let saving = false;
 async function save() {
-  if (!result) return;
-  const file = new File([result.blob], result.name, { type: "video/mp4" });
+  if (!result || saving) return;
+  saving = true;
+  ui.save.disabled = true;
+  try {
+    let blob = result.blob, name = result.name;
+    if (pads.hasChanges()) {
+      $("pads").scrollIntoView({ behavior: "smooth", block: "start" });
+      const take = await pads.exportFx(f => setProgress(f * 0.9, `SAVING WITH FX ${Math.round(f * 100)}%`));
+      ({ blob, name } = take);
+      log(`save: recorded ${name}, ${(blob.size / 1048576).toFixed(1)} MB`);
+      if (!blob.type.includes("mp4")) {
+        try {
+          await loadFFmpeg();
+          setProgress(0.92, "SAVING: MP4");
+          await ffmpeg.writeFile("take.webm", new Uint8Array(await blob.arrayBuffer()));
+          const ret = await ffmpeg.exec(["-i", "take.webm", "-vf", "fps=30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", "take.mp4"]);
+          await rm("take.webm");
+          if (ret !== 0) throw new Error("conversion failed");
+          blob = new Blob([(await ffmpeg.readFile("take.mp4")).buffer], { type: "video/mp4" });
+          await rm("take.mp4");
+          name = name.replace(/\.webm$/, ".mp4");
+        } catch (e) {
+          log(`save: kept WebM (${e.message || e})`);
+        }
+      }
+      setProgress(1, "SAVED WITH FX");
+    }
+    await share(blob, name);
+  } catch (e) {
+    log(`ERROR: ${e.message || e}`);
+    setProgress(0, `ERROR: ${(e.message || e).toString().slice(0, 60)}`);
+  } finally {
+    saving = false;
+    ui.save.disabled = false;
+  }
+}
+
+async function share(blob, name) {
+  const file = new File([blob], name, { type: blob.type || "video/mp4" });
+  // (after a long FX save the tap has "expired", so sharing can be refused: then it downloads)
   if (navigator.canShare?.({ files: [file] })) {
     try { await navigator.share({ files: [file], title: "MOSH" }); return; }
     catch (e) { if (e.name === "AbortError") return; }
   }
-  const a = Object.assign(document.createElement("a"), { href: result.url, download: result.name });
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
   document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 // ---------- wire up ----------

@@ -342,9 +342,10 @@ export class PadMode {
   }
 
   // ---------- REC: record the screen + the sound to a video ----------
-  recStart() {
-    if (!this.loaded || this.rec) return;
-    if (!this.screen.captureStream || typeof MediaRecorder === "undefined") { this.status("Recording isn't supported in this browser"); return; }
+  // onBlob(blob, name): where the finished recording goes (default: the SAVE TAKE button)
+  recStart(onBlob = null) {
+    if (!this.loaded || this.rec) return false;
+    if (!this.screen.captureStream || typeof MediaRecorder === "undefined") { this.status("Recording isn't supported in this browser"); return false; }
     const types = ["video/mp4;codecs=avc1,mp4a.40.2", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
     const type = types.find(t => MediaRecorder.isTypeSupported?.(t)) || "";
     const stream = this.screen.captureStream(30);
@@ -354,7 +355,7 @@ export class PadMode {
     const chunks = [];
     let mr;
     try { mr = new MediaRecorder(stream, { ...(type && { mimeType: type }), videoBitsPerSecond: 8_000_000 }); }
-    catch (e) { try { this.out.disconnect(dest); } catch {} this.status(`Can't record: ${e.message || e}`); return; }
+    catch (e) { try { this.out.disconnect(dest); } catch {} this.status(`Can't record: ${e.message || e}`); return false; }
     mr.ondataavailable = e => e.data.size && chunks.push(e.data);
     mr.onstop = () => {
       try { this.out.disconnect(dest); } catch {}
@@ -362,7 +363,7 @@ export class PadMode {
       const mime = (mr.mimeType || type || "video/webm").split(";")[0];
       const blob = new Blob(chunks, { type: mime });
       const name = `mosh-live-${Date.now()}.${mime.includes("mp4") ? "mp4" : "webm"}`;
-      this.saveTake(blob, name);
+      (onBlob || ((b, n) => this.saveTake(b, n)))(blob, name);
     };
     mr.start(250);
     this.rec = mr;
@@ -370,6 +371,38 @@ export class PadMode {
     this.recBtn.textContent = "■ STOP REC";
     this.root.querySelector(".rec-dot").hidden = false;
     if (!this.playing && !this.voice) this.play();
+    return true;
+  }
+
+  // Anything set that changes how the mosh looks or sounds (so SAVE has to record it)?
+  hasChanges() {
+    const glitch = GLITCHES.some(g => this.fx[g.toLowerCase()]);
+    return this.loaded && (this.fx.color !== 0 || glitch || Math.abs(this.pitch - 1) > 0.001 || this.revOn);
+  }
+
+  // SAVE with everything that's set: play the whole mosh once from the start, through the
+  // COLOR / GLITCH / PITCH / REV settings, and record it (picture + sound) in real time.
+  // Resolves to { blob, name }.
+  exportFx(onProgress) {
+    return new Promise((resolve, reject) => {
+      if (!this.loaded) return reject(new Error("nothing on the pads yet"));
+      if (this.rec) return reject(new Error("stop REC first"));
+      const c = this.clips[this.sel];
+      if (this.voice) this.stopVoice();
+      this.ttape = null;
+      this.tpos = this.revOn ? c.duration - 0.001 : 0;
+      this.play();
+      const ok = this.recStart((blob, name) => resolve({ blob, name: name.replace("mosh-live", "mosh-fx") }));
+      if (!ok) return reject(new Error("recording isn't supported in this browser"));
+      const len = c.duration / this.pitch + 0.15, t0 = performance.now();
+      const tick = () => {
+        const f = (performance.now() - t0) / 1000 / len;
+        onProgress?.(Math.min(1, f));
+        if (f >= 1) this.recStop();
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
   }
   recStop() {
     if (!this.rec) return;

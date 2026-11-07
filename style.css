@@ -20,12 +20,21 @@ body {
 #bgmosh { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 0; object-fit: cover; image-rendering: pixelated; pointer-events: none; }
 #bg { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; z-index: 0; image-rendering: pixelated; }
 main {
-  position: relative; z-index: 1; max-width: 520px; margin: 0 auto;
+  position: relative; z-index: 1; max-width: 1180px; margin: 0 auto;
   padding: max(18px, env(safe-area-inset-top)) 14px max(28px, env(safe-area-inset-bottom));
   display: flex; flex-direction: column; gap: 22px;
   pointer-events: none;                       /* gaps between panels pass through to the field */
 }
 main > * { pointer-events: auto; }
+/* Wide screens: clips + mosh on the left, the player and pads on the right */
+@media (min-width: 860px) {
+  main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr); column-gap: 22px; row-gap: 22px; align-items: start; }
+  main > header, main > .log, main > .foot { grid-column: 1 / -1; }
+  #p-clips { grid-column: 1; grid-row: 2; }
+  #p-mosh { grid-column: 1; grid-row: 3; }
+  #pads { grid-column: 2; grid-row: 2 / span 2; }
+  .live-screen { max-height: 70vh; }
+}
 
 /* Logo: Times New Roman bold, really moshed on a canvas */
 header { text-align: center; padding-top: 6px; pointer-events: none; }

@@ -13,6 +13,7 @@
 
 const RESID = 0.55;              // how much of the P-frame residual gets added while moshing
 const ENC = 128 / 255;           // vector encoding: 0.5 in an 8-bit texture = no motion
+const OUT_SCALE = 3;             // the screen (and REC / SAVE) is drawn 3x bigger, crisp pixels
 
 export const COLORS = ["NORMAL", "RED", "MONO", "CYAN", "ACID", "HEAT", "VAPOR", "INVERT", "POSTER", "1-BIT"];
 export const GLITCHES = ["RGB", "BLOCKS", "PIXEL", "TEAR", "MIRROR", "VECTORS", "MELT", "STROBE"];
@@ -144,7 +145,7 @@ void main() {
   else if (k == 6) c = mix(vec3(0.17, 0.0, 0.35), vec3(1.0, 0.45, 0.85), l) + vec3(0.0, 0.5, 0.5) * smoothstep(0.75, 1.0, l);
   else if (k == 7) c = 1.0 - c;
   else if (k == 8) c = floor(c * 3.99) / 3.0;
-  else if (k == 9) c = vec3(step(bayer(gl_FragCoord.xy), l));
+  else if (k == 9) c = vec3(step(bayer(floor(gl_FragCoord.xy / ${OUT_SCALE.toFixed(1)})), l));
   if (uFlash > 0.5) c = 1.0 - c;
   o = vec4(clamp(c, 0.0, 1.0), 1.0);
 }`;
@@ -217,7 +218,7 @@ export class LiveEngine {
     this.release();
     const gl = this.gl, any = Object.values(clips).find(Boolean);
     this.w = any.w; this.h = any.h;
-    this.canvas.width = this.w; this.canvas.height = this.h;
+    this.canvas.width = this.w * OUT_SCALE; this.canvas.height = this.h * OUT_SCALE;
     this.bw = this.w / 8; this.bh = this.h / 8;
     const maxLayers = gl.getParameter(gl.MAX_ARRAY_TEXTURE_LAYERS);
     for (const [k, c] of Object.entries(clips)) {
