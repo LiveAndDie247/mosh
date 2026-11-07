@@ -1,11 +1,16 @@
-// MOSH: the UI and the ffmpeg.wasm plumbing. The datamosh itself is in mosh.js,
-// the ffmpeg command lines in pipeline.js.
+// MOSH: the UI and the ffmpeg.wasm plumbing. The datamosh itself is in mosh.js, the ffmpeg
+// command lines in pipeline.js. The living background is field.js, the logo logo.js, the paint
+// toolbar paint.js, its sounds sfx.js.
 import { FFmpeg } from "./vendor/ffmpeg/index.js";
 import { fetchFile } from "./vendor/util/index.js";
 import { moshAvi } from "./mosh.js";
 import { encodeArgs, decodeArgs, targetSize, MAX_SECONDS } from "./pipeline.js";
+import { Field, patternImage } from "./field.js";
+import { Logo } from "./logo.js";
+import { Paint } from "./paint.js";
+import { sfx, audio } from "./sfx.js";
 
-const BUILD = 4;                          // shown in the LOG, so a screenshot tells which version ran
+const BUILD = 5;                          // shown in the LOG, so a screenshot tells which version ran
 
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
@@ -54,6 +59,51 @@ function probe(file) {
   });
 }
 
+// One still frame from a clip, as a canvas (for the background and STAMP)
+function grabFrame(file, at = 0.2) {
+  return new Promise(resolve => {
+    const v = document.createElement("video");
+    const url = URL.createObjectURL(file);
+    let settled = false;
+    const done = c => { if (settled) return; settled = true; URL.revokeObjectURL(url); v.removeAttribute("src"); resolve(c); };
+    v.muted = true; v.playsInline = true; v.preload = "auto";
+    v.onloadeddata = () => { v.currentTime = Math.min(at, (v.duration || 1) * 0.5); };
+    v.onseeked = () => {
+      const s = Math.min(1, 640 / Math.max(v.videoWidth, v.videoHeight));
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(v.videoWidth * s)); c.height = Math.max(1, Math.round(v.videoHeight * s));
+      try { c.getContext("2d").drawImage(v, 0, 0, c.width, c.height); done(c); } catch { done(null); }
+    };
+    v.onerror = () => done(null);
+    setTimeout(() => done(null), 10000);
+    v.src = url;
+  });
+}
+
+// ---------- the living background, the logo, paint ----------
+const field = new Field($("bg"));
+const pattern = patternImage();
+let stampSource = null;                   // Clip B's frame (or A's, or the pattern)
+let swipe = [1, 1];                       // last drag direction: the logo bursts this way
+field.setImage(pattern);
+const logo = new Logo($("logo"));
+new Paint({
+  field,
+  onSwipe: (dx, dy) => { swipe = [dx, dy]; },
+  getStamp: () => stampSource || pattern,
+});
+
+// MOSH is the "pad hit": a shockwave through the background and a hard burst on the logo.
+// While it's held the logo keeps melting and never heals.
+ui.mosh.addEventListener("pointerdown", () => {
+  audio();
+  logo.hold(true);
+  logo.burst(...swipe);
+  field.shock(innerWidth / 2, innerHeight / 2, 1);
+  sfx.shock();
+});
+for (const t of ["pointerup", "pointercancel", "pointerleave"]) ui.mosh.addEventListener(t, () => logo.hold(false));
+
 // ---------- picking clips ----------
 async function pick(which, input) {
   const file = input.files?.[0];
@@ -69,6 +119,10 @@ async function pick(which, input) {
     updateLabels();
   }
   refresh();
+  // The background becomes Clip A's picture; STAMP uses Clip B's (or A's until B is picked)
+  const frame = await grabFrame(file);
+  if (frame && which === "A") { field.setImage(frame); if (!clips.B) stampSource = frame; }
+  if (frame && which === "B") stampSource = frame;
 }
 
 function refresh() {
@@ -89,6 +143,7 @@ function updateLabels() {
   ui.bloomOut.textContent = n ? `×${n}` : "off";
   ui.bloomAtOut.textContent = `${ui.bloomAt.value}%`;
   ui.bloomAt.disabled = !n;
+  field.bloom = n / 30;                  // BLOOM also makes the background keep re-applying its vectors
 }
 
 // ---------- ffmpeg ----------
@@ -231,6 +286,7 @@ ui.save.addEventListener("click", save);
 updateLabels();
 refresh();
 log(`MOSH build ${BUILD}`);
+if (!field.ok) log(`background off: ${field.error}`);
 
 // Installable, and the engine is cached after the first run. When a new version of the
 // service worker takes over (after a deploy), reload once so the new app code runs.
