@@ -4,8 +4,8 @@
   "description": "Real I-frame-removal datamosh, entirely on your phone.",
   "start_url": "./",
   "scope": "./",
-  "display": "standalone",
-  "orientation": "portrait",
+  "display": "fullscreen",
+  "orientation": "landscape",
   "background_color": "#000000",
   "theme_color": "#000000",
   "icons": [

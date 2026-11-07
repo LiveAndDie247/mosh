@@ -12,18 +12,15 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<!-- The living background: a datamosh field you can drag to smear -->
+<!-- Behind and around the device: the datamosh field, then (after a mosh) the moshed video -->
 <canvas id="bg" aria-hidden="true"></canvas>
-<!-- After a mosh: the page background IS the moshed video, live from the pads (with their FX) -->
 <canvas id="bgmosh" aria-hidden="true" hidden></canvas>
 
-<main>
-  <header>
-    <h1 class="sr-only">MOSH</h1>
-    <canvas id="logo" aria-hidden="true"></canvas>
-    <p class="sub">I-FRAME REMOVAL // REAL DATAMOSH</p>
-  </header>
+<!-- THE DEVICE: one 1600x900 landscape machine, scaled to fit (layout.js). The page never scrolls. -->
+<div id="device">
+  <h1 class="sr-only">MOSH</h1>
 
+  <!-- LEFT: clips on top, the mosh controls under them -->
   <section class="panel" id="p-clips">
     <h2 class="ph"><span>01</span> CLIPS</h2>
     <div class="pick">
@@ -31,13 +28,13 @@
         <div class="file" id="cardA" role="button" tabindex="0" aria-label="Clip A: pick from the gallery">
           <div class="thumb" id="thumbA"></div>
           <span class="tag">A</span>
-          <span class="what">THE PICTURE<br><small>gets smeared</small></span>
+          <span class="what">THE PICTURE</span>
           <span class="name" id="nameA">empty</span>
         </div>
         <div class="slot-btns">
           <button data-act="gallery" data-slot="A">GALLERY</button>
-          <button data-act="gif" data-slot="A">GIFCITIES</button>
           <button data-act="dice" data-slot="A" aria-label="Random GIF for A">🎲</button>
+          <button data-act="gif" data-slot="A">GIFCITIES</button>
         </div>
         <input type="file" id="fileA" accept="video/*,image/gif" hidden>
       </div>
@@ -45,22 +42,22 @@
         <div class="file" id="cardB" role="button" tabindex="0" aria-label="Clip B: pick from the gallery">
           <div class="thumb" id="thumbB"></div>
           <span class="tag">B</span>
-          <span class="what">THE MOTION<br><small>drags it around</small></span>
+          <span class="what">THE MOTION</span>
           <span class="name" id="nameB">empty</span>
         </div>
         <div class="slot-btns">
           <button data-act="gallery" data-slot="B">GALLERY</button>
-          <button data-act="gif" data-slot="B">GIFCITIES</button>
           <button data-act="dice" data-slot="B" aria-label="Random GIF for B">🎲</button>
+          <button data-act="gif" data-slot="B">GIFCITIES</button>
         </div>
         <input type="file" id="fileB" accept="video/*,image/gif" hidden>
       </div>
     </div>
-    <div class="randrow">
-      <button id="randBoth" class="rand">🎲 RANDOM BOTH</button>
+    <button id="randBoth" class="rand">🎲 RANDOM BOTH</button>
+    <div class="chks">
       <label class="chk"><input type="checkbox" id="randSettings" checked> random settings</label>
+      <label class="chk"><input type="checkbox" id="autoMosh"> auto-MOSH</label>
     </div>
-    <label class="chk automosh"><input type="checkbox" id="autoMosh"> mosh right after RANDOM BOTH</label>
     <p class="warn" id="warn" hidden></p>
   </section>
 
@@ -78,14 +75,36 @@
       <span id="status">PICK TWO CLIPS</span>
     </div>
     <video id="out" controls playsinline loop hidden></video>
-    <button id="save" class="save" hidden>SAVE / SHARE THE MOSH</button>
+    <button id="save" class="save" hidden>SAVE / SHARE</button>
   </section>
 
-  <section class="panel pads-wrap" id="pads" aria-label="Live pads"></section>
+  <!-- CENTER: the screen and its controls; RIGHT: the pads (both built by pads.js) -->
+  <section class="panel" id="p-play" aria-label="Player"></section>
+  <section class="panel" id="p-pads" aria-label="Live pads"></section>
 
-  <details class="log"><summary>LOG</summary><pre id="log"></pre></details>
-  <p class="foot">Runs entirely on your phone. Nothing is uploaded.<br>First run downloads the ffmpeg engine (~31 MB).<br>Drag the background to smear it.</p>
-</main>
+  <!-- BOTTOM: a thin status bar -->
+  <footer id="statusbar">
+    <canvas id="logo" aria-hidden="true"></canvas>
+    <span class="sb-sub">I-FRAME REMOVAL // REAL DATAMOSH</span>
+    <button id="logline" class="sb-log" aria-label="Show the log">LOG ▸</button>
+    <button id="portraitMode" class="sb-btn"></button>
+    <span class="sb-foot">runs on your phone · nothing uploaded</span>
+  </footer>
+
+  <!-- The LOG, as an overlay over the device -->
+  <div id="logbox" hidden>
+    <div class="logbox-head"><b>LOG</b><button id="logclose" aria-label="Close the log">✕</button></div>
+    <pre id="log"></pre>
+  </div>
+</div>
+
+<!-- Portrait, unless set to turn the device sideways -->
+<div id="rotate" hidden>
+  <div class="rot-icon">↻</div>
+  <p>Rotate your phone</p>
+  <button id="rotateAnyway">USE IT SIDEWAYS HERE</button>
+</div>
+
 <div class="scan" aria-hidden="true"></div>
 <div class="noise" aria-hidden="true"></div>
 <script type="module" src="app.js"></script>

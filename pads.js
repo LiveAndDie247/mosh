@@ -18,9 +18,13 @@ const TAPE_TIME = 0.9;        // seconds for TAPE STOP to reach a halt
 const ROLL_TIME = 2.0;        // seconds for ROLL to go from 1/4 to 1/32
 
 export class PadMode {
-  constructor(root, opts) {
-    this.root = root;
-    this.o = opts;            // { loadFFmpeg, log, onHit, onMosh }
+  // roots: { play: the center panel (screen, transport, COLOR, GLITCH), pads: the right panel
+  // (pads, function row, REPEAT, faders) }. Both are built right away, so the device is complete
+  // before the first mosh.
+  constructor(roots, opts) {
+    this.root = roots.play;
+    this.padRoot = roots.pads;
+    this.o = opts;            // { loadFFmpeg, log, onHit, onMosh, onFrame }
     this.clips = {};
     this.sel = "M";           // the finished mosh
     this.voice = null;
@@ -36,16 +40,13 @@ export class PadMode {
       if (document.hidden) { this.wasPlaying = this.playing; this.pause(); this.stopLoop(); }
       else if (this.loaded) { this.startLoop(); if (this.wasPlaying) this.play(); }
     });
-    this.shell();
+    try { this.build(); }
+    catch (e) {
+      this.buildError = e;
+      this.root.innerHTML = `<h2 class="ph"><span>03</span> PLAY</h2><p class="screen-msg">The live screen needs WebGL2: ${e.message || e}</p>`;
+    }
   }
 
-  // ---------- before loading ----------
-  shell() {
-    this.root.innerHTML = `
-      <h2 class="ph"><span>03</span> PLAY</h2>
-      <p class="pads-msg">Hit MOSH above: the finished mosh lands here and plays on loop, with its sound. Then play it on the pads.</p>`;
-    this.msg = this.root.querySelector(".pads-msg");
-  }
   status(text) { if (this.msg) this.msg.textContent = text; }
 
   // Load the finished mosh (an MP4 file) onto the pads. Returns true if it worked.
@@ -65,8 +66,9 @@ export class PadMode {
       this.status("Loading the mosh onto the pads…");
       const ff = await this.o.loadFFmpeg();
       const clip = await decodeClip(ff, file, padSize(w, h), this.ac, p => this.status(`Loading onto the pads… ${Math.round(p * 100)}%`));
-      if (!this.engine) this.build();
+      if (!this.engine) throw this.buildError || new Error("no live screen");
       this.engine.setClips({ M: clip });
+      this.root.querySelector(".screen-msg").hidden = true;
       clip.frames = null;                                       // it lives on the GPU now
       this.clips = { M: clip };
       this.sel = "M";
@@ -90,11 +92,12 @@ export class PadMode {
 
   // ---------- the pad UI ----------
   build() {
-    const r = this.root;
+    const r = this.root, pr = this.padRoot;
     r.innerHTML = `
-      <div class="pads-head"><h2 class="ph"><span>03</span> PLAY</h2><span class="pads-msg"></span></div>
+      <h2 class="ph"><span>03</span> PLAY<span class="pads-msg"></span></h2>
       <div class="screen-wrap">
         <canvas class="live-screen"></canvas>
+        <p class="screen-msg">Hit MOSH: the finished mosh plays here on loop, with its sound.<br>Then play it on the pads.</p>
         <span class="rec-dot" hidden>● REC</span>
       </div>
       <div class="scrub"><div class="scrub-fill"></div><div class="scrub-head"></div></div>
@@ -104,6 +107,15 @@ export class PadMode {
         <button class="t-full">FULL</button>
       </div>
       <a class="rec-save" hidden></a>
+      <div class="fx-head"><span class="sub-h">COLOR</span></div>
+      <div class="seg colors"></div>
+      <div class="fx-head"><span class="sub-h">GLITCH</span><button class="fx-rand">🎲 FX</button><button class="fx-clear">CLEAR</button></div>
+      <div class="glitch-row"></div>
+      <div class="faders">
+        <label><span>AMOUNT</span><output class="o-amt"></output><input type="range" class="f-amt" min="0" max="100" value="50"></label>
+      </div>`;
+    pr.innerHTML = `
+      <h2 class="ph"><span>04</span> PADS</h2>
       <div class="pad-grid"></div>
       <div class="fn-row"></div>
       <div class="sub-h">REPEAT</div>
@@ -112,13 +124,6 @@ export class PadMode {
         <label><span>GATE</span><output class="o-gate"></output><input type="range" class="f-gate" min="10" max="100" value="60"></label>
         <label><span>PITCH</span><output class="o-pitch"></output><input type="range" class="f-pitch" min="-100" max="100" value="0"></label>
         <label><span>BPM</span><output class="o-bpm"></output><input type="range" class="f-bpm" min="60" max="180" value="120"></label>
-      </div>
-      <div class="fx-head"><span class="sub-h">COLOR</span></div>
-      <div class="seg colors"></div>
-      <div class="fx-head"><span class="sub-h">GLITCH</span><button class="fx-rand">🎲 FX</button><button class="fx-clear">CLEAR</button></div>
-      <div class="glitch-row"></div>
-      <div class="faders">
-        <label><span>AMOUNT</span><output class="o-amt"></output><input type="range" class="f-amt" min="0" max="100" value="50"></label>
       </div>`;
     this.msg = r.querySelector(".pads-msg");
     const screen = (this.screen = r.querySelector(".live-screen"));
@@ -129,25 +134,32 @@ export class PadMode {
     this.playBtn.addEventListener("click", () => (this.playing ? this.pause() : this.play()));
     this.recBtn = r.querySelector(".t-rec");
     this.recBtn.addEventListener("click", () => (this.rec ? this.recStop() : this.recStart()));
-    r.querySelector(".t-full").addEventListener("click", () => {
-      const w = r.querySelector(".screen-wrap");
-      if (document.fullscreenElement) document.exitFullscreen?.();
-      else (w.requestFullscreen || w.webkitRequestFullscreen)?.call(w);
+    // FULL: the whole app full screen, locked sideways (the lock only works in full screen)
+    r.querySelector(".t-full").addEventListener("click", async () => {
+      try {
+        if (document.fullscreenElement) { await document.exitFullscreen(); return; }
+        const el = document.documentElement;
+        await (el.requestFullscreen || el.webkitRequestFullscreen).call(el, { navigationUI: "hide" });
+        try { await globalThis.screen.orientation?.lock?.("landscape"); } catch (e) { this.o.log?.(`orientation lock: ${e.message || e}`); }
+      } catch (e) {
+        this.o.log?.(`fullscreen: ${e.message || e}`);
+      }
     });
     this.scrubFill = r.querySelector(".scrub-fill");
     this.scrubHead = r.querySelector(".scrub-head");
     const scrub = r.querySelector(".scrub");
+    // offsetX is in the bar's own (unscaled, unrotated) coordinates, so this works however the
+    // device is scaled or turned
     const seek = e => {
       const c = this.clips[this.sel];
       if (!c) return;
-      const b = scrub.getBoundingClientRect();
-      this.seek(Math.max(0, Math.min(0.9999, (e.clientX - b.left) / b.width)) * c.duration);
+      this.seek(Math.max(0, Math.min(0.9999, e.offsetX / scrub.offsetWidth)) * c.duration);
     };
     scrub.addEventListener("pointerdown", e => { e.preventDefault(); scrub.setPointerCapture(e.pointerId); seek(e); });
     scrub.addEventListener("pointermove", e => { if (scrub.hasPointerCapture(e.pointerId)) seek(e); });
 
     // 16 pads
-    const grid = r.querySelector(".pad-grid");
+    const grid = pr.querySelector(".pad-grid");
     this.pads = [];
     for (let i = 0; i < 16; i++) {
       const p = document.createElement("button");
@@ -161,7 +173,7 @@ export class PadMode {
     }
 
     // Function row: hold buttons + toggles
-    const fn = r.querySelector(".fn-row");
+    const fn = pr.querySelector(".fn-row");
     const holdBtn = (label, on, off) => {
       const b = document.createElement("button");
       b.className = "fn"; b.textContent = label;
@@ -183,7 +195,7 @@ export class PadMode {
     holdBtn("TAPE STOP", () => this.tapeStop(), () => {});
 
     // Repeat
-    const rep = r.querySelector(".rep");
+    const rep = pr.querySelector(".rep");
     this.repBtns = REPEATS.map(([label], i) => {
       const b = document.createElement("button");
       b.textContent = label;
@@ -193,7 +205,7 @@ export class PadMode {
     });
 
     // Faders
-    const f = sel => r.querySelector(sel);
+    const f = sel => r.querySelector(sel) || pr.querySelector(sel);
     const gate = f(".f-gate"), pitch = f(".f-pitch"), bpm = f(".f-bpm");
     const upd = () => {
       this.gate = +gate.value / 100;

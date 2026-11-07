@@ -10,9 +10,10 @@ import { Field, patternImage } from "./field.js";
 import { Logo } from "./logo.js";
 import { sfx, audio } from "./sfx.js";
 import { PadMode } from "./pads.js";
+import { Layout } from "./layout.js";
 import { GifSheet, loadIndex, randomGif, randomVibe, prepareGif, gifURL, gifArgs } from "./gif.js";
 
-const BUILD = 13;                         // shown in the LOG, so a screenshot tells which version ran
+const BUILD = 14;                         // shown in the LOG, so a screenshot tells which version ran
 
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
@@ -31,11 +32,16 @@ let ffmpeg = null, ready = null, result = null, busy = false, prepping = false;
 
 // ---------- small helpers ----------
 const fmtSec = s => `${s.toFixed(1)} s`;
+// The LOG: its last line sits in the status bar; tap it for the whole log as an overlay
+const logline = $("logline"), logbox = $("logbox");
 function log(line) {
   ui.log.textContent += line + "\n";
   if (ui.log.textContent.length > 60000) ui.log.textContent = ui.log.textContent.slice(-40000);
   ui.log.scrollTop = ui.log.scrollHeight;
+  logline.textContent = `LOG ▸ ${line}`;
 }
+logline.addEventListener("click", () => { logbox.hidden = !logbox.hidden; ui.log.scrollTop = ui.log.scrollHeight; });
+$("logclose").addEventListener("click", () => { logbox.hidden = true; });
 function setProgress(frac, text) {
   if (frac != null) ui.bar.style.width = `${Math.round(Math.min(1, Math.max(0, frac)) * 100)}%`;
   if (text) ui.status.textContent = text;
@@ -109,7 +115,7 @@ for (const t of ["pointerup", "pointercancel", "pointerleave"]) ui.mosh.addEvent
 
 // LIVE PADS: the finished mosh lands here and plays on loop. Every pad hit is a shockwave + a
 // logo burst; their MOSH keeps the logo melting.
-const pads = new PadMode($("pads"), {
+const pads = new PadMode({ play: $("p-play"), pads: $("p-pads") }, {
   loadFFmpeg: async () => {
     if (busy) throw new Error("wait for the render to finish first");
     await loadFFmpeg();
@@ -387,8 +393,7 @@ async function doMosh() {
     result.onPads = true;
     const ok = await pads.loadMoshed(new File([result.blob], result.name, { type: "video/mp4" }), result.w, result.h);
     ui.out.hidden = ok;
-    if (ok) $("pads").scrollIntoView({ behavior: "smooth", block: "start" });
-    else ui.out.play().catch(() => {});
+    if (!ok) ui.out.play().catch(() => {});
   }
 }
 
@@ -403,7 +408,6 @@ async function save() {
   try {
     let blob = result.blob, name = result.name;
     if (pads.hasChanges()) {
-      $("pads").scrollIntoView({ behavior: "smooth", block: "start" });
       const take = await pads.exportFx(f => setProgress(f * 0.9, `SAVING WITH FX ${Math.round(f * 100)}%`));
       ({ blob, name } = take);
       log(`save: recorded ${name}, ${(blob.size / 1048576).toFixed(1)} MB`);
@@ -478,6 +482,12 @@ ui.save.addEventListener("click", save);
 updateLabels();
 refresh();
 log(`MOSH build ${BUILD}`);
+
+// The device: 1600x900, scaled to fit; logs the real size of the smallest text (25 design px)
+const layout = new Layout({
+  device: $("device"), rotate: $("rotate"), toggle: $("portraitMode"), anyway: $("rotateAnyway"),
+  onFit: (s, turned) => log(`layout: ${innerWidth}x${innerHeight}${turned ? " turned" : ""}, scale ${s.toFixed(3)}, smallest text ${(25 * s).toFixed(1)}px`),
+});
 if (!field.ok) log(`background off: ${field.error}`);
 
 // Installable, and the engine is cached after the first run. When a new version of the
