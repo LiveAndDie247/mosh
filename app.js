@@ -1,7 +1,7 @@
 // MOSH: the UI and the ffmpeg.wasm plumbing. The datamosh itself is in mosh.js,
 // the ffmpeg command lines in pipeline.js.
 import { FFmpeg } from "./vendor/ffmpeg/index.js";
-import { fetchFile, toBlobURL } from "./vendor/util/index.js";
+import { fetchFile } from "./vendor/util/index.js";
 import { moshAvi } from "./mosh.js";
 import { encodeArgs, decodeArgs, targetSize, MAX_SECONDS } from "./pipeline.js";
 
@@ -90,25 +90,41 @@ function updateLabels() {
 }
 
 // ---------- ffmpeg ----------
+// Download to a blob: URL with progress (what @ffmpeg/util's toBlobURL does, minus its bug:
+// when the server compresses the file, Content-Length counts compressed bytes, the count
+// "doesn't match", and toBlobURL then re-reads the already-consumed response and fails with
+// "body stream already read"). Here the length is only ever a progress hint.
+const WASM_BYTES = 32232419;               // @ffmpeg/core 0.12.10 ffmpeg-core.wasm, for progress
+async function blobURL(url, type, onProgress) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Engine download failed (HTTP ${res.status})`);
+  const enc = res.headers.get("Content-Encoding");
+  const len = +res.headers.get("Content-Length") || 0;
+  const total = enc && enc !== "identity" ? 0 : len;   // compressed: the length isn't the real size
+  if (!res.body?.getReader) return URL.createObjectURL(new Blob([await res.arrayBuffer()], { type }));
+  const reader = res.body.getReader(), chunks = [];
+  let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    got += value.length;
+    onProgress?.(got, total && got <= total ? total : 0);
+  }
+  return URL.createObjectURL(new Blob(chunks, { type }));
+}
+
 async function loadFFmpeg() {
   if (ready) return ready;
   ready = (async () => {
     ffmpeg = new FFmpeg();
     ffmpeg.on("log", ({ message }) => log(message));
-    const dl = { js: 0, wasm: 0 };
-    const show = () => {
-      const f = dl.js * 0.02 + dl.wasm * 0.98;
-      setProgress(f, `LOADING ENGINE ${Math.round(f * 100)}%`);
-    };
-    // jsDelivr may not send Content-Length (compressed): then show megabytes instead of a percentage
-    const WASM_MB = 32;
-    const track = key => ({ total, received }) => {
-      if (total > 0) { dl[key] = received / total; show(); }
-      else if (key === "wasm") setProgress(Math.min(0.99, received / (WASM_MB * 1048576)), `LOADING ENGINE ${(received / 1048576).toFixed(1)} MB`);
-    };
     setProgress(0, "LOADING ENGINE");
-    const coreURL = await toBlobURL(`${CORE_BASE}/ffmpeg-core.js`, "text/javascript", true, track("js"));
-    const wasmURL = await toBlobURL(`${CORE_BASE}/ffmpeg-core.wasm`, "application/wasm", true, track("wasm"));
+    const coreURL = await blobURL(`${CORE_BASE}/ffmpeg-core.js`, "text/javascript");
+    const wasmURL = await blobURL(`${CORE_BASE}/ffmpeg-core.wasm`, "application/wasm", (got, total) => {
+      const f = total ? got / total : got / WASM_BYTES;
+      setProgress(Math.min(0.99, f), `LOADING ENGINE ${(got / 1048576).toFixed(1)} MB`);
+    });
     await ffmpeg.load({ coreURL, wasmURL });
 
     // Check this build really has the encoders the pipeline needs
