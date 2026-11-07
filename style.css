@@ -175,6 +175,7 @@ body.pads-open .live-screen { max-height: 38vh; }
 .log pre { border: 3px double var(--r); border-top: 0; background: #000; padding: 6px 8px; max-height: 220px; overflow: auto; font: 10px/1.3 var(--tt); color: var(--b); white-space: pre-wrap; }
 .foot { font-size: 10px; color: var(--b); text-align: center; line-height: 1.4; }
 .foot span { background: var(--b); color: var(--r); padding: 1px 6px; display: inline-block; font-weight: 700; }
+.foot .home { display: inline-flex; align-items: center; min-height: 40px; padding: 0 10px; font-size: 11px; font-weight: 700; }
 
 /* inside the sections: table-style rows */
 .sub-h { font-size: 11px; font-weight: 700; color: var(--r); padding: 2px 4px; background: var(--r3); border: 1px solid var(--r3); }
