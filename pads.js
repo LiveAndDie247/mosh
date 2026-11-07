@@ -1,5 +1,9 @@
-// PAD MODE: 4x4 pads, each a slice of the clip (picture + sound, together), played live
-// through the live mosh engine. Triggered on finger-down, so it feels instant.
+// PAD MODE: the finished mosh plays here, on loop, with its sound. 4x4 pads, each a slice of the
+// clip (picture + sound, together), played live through the live mosh engine. Triggered on
+// finger-down, so it feels instant. While a pad plays, the main playback keeps running silently
+// underneath and comes back when you let go.
+//   ▶/■ play / stop the loop · scrub bar: tap or drag to jump · REC: record what you play
+//   (picture + sound) to a video · FULL: full screen
 //   REPEAT 1/4..1/32 (+ triplets) locked to BPM  ·  GATE: how much of each repeat plays
 //   PITCH: speeds video + audio together  ·  HOLD: keep playing after release  ·  REV: backwards
 //   ROLL: repeat speeds up 1/4 -> 1/32 while held  ·  TAPE STOP: everything slows to a halt
@@ -26,15 +30,20 @@ export class PadMode {
     this.moshHeld = false; this.bloomHeld = false; this.rollHeld = false;
     this.lastSlice = 0;
     this.raf = 0;
-    document.addEventListener("visibilitychange", () => (document.hidden ? this.stop() : this.loaded && this.start()));
+    // main playback (the transport)
+    this.playing = false; this.tpos = 0; this.tnode = null; this.ttape = null; this.lastT = 0;
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) { this.wasPlaying = this.playing; this.pause(); this.stopLoop(); }
+      else if (this.loaded) { this.startLoop(); if (this.wasPlaying) this.play(); }
+    });
     this.shell();
   }
 
   // ---------- before loading ----------
   shell() {
     this.root.innerHTML = `
-      <div class="pads-head"><b>LIVE PADS</b></div>
-      <p class="pads-msg">Hit MOSH above: the finished mosh lands here on the pads, with its sound.</p>`;
+      <h2 class="ph"><span>03</span> PLAY</h2>
+      <p class="pads-msg">Hit MOSH above: the finished mosh lands here and plays on loop, with its sound. Then play it on the pads.</p>`;
     this.msg = this.root.querySelector(".pads-msg");
   }
   status(text) { if (this.msg) this.msg.textContent = text; }
@@ -52,6 +61,7 @@ export class PadMode {
         this.out.connect(this.ac.destination);
       }
       if (this.voice) this.stopVoice();
+      this.pause();
       this.status("Loading the mosh onto the pads…");
       const ff = await this.o.loadFFmpeg();
       const clip = await decodeClip(ff, file, padSize(w, h), this.ac, p => this.status(`Loading onto the pads… ${Math.round(p * 100)}%`));
@@ -60,11 +70,12 @@ export class PadMode {
       clip.frames = null;                                       // it lives on the GPU now
       this.clips = { M: clip };
       this.sel = "M";
-      this.shownSrc = "M"; this.shownIdx = 0;
+      this.shownSrc = "M"; this.shownIdx = 0; this.tpos = 0;
       this.syncUI();
       this.loaded = true;
       this.status(`${clip.n} frames · ${(clip.duration).toFixed(1)} s${clip.silent ? " · no sound" : ""}`);
-      this.start();
+      this.startLoop();
+      this.play();
       this.o.log?.(`pads: mosh loaded, ${clip.n} frames ${clip.w}x${clip.h}${clip.silent ? " (no audio)" : ""}`);
       return true;
     } catch (e) {
@@ -81,10 +92,21 @@ export class PadMode {
   build() {
     const r = this.root;
     r.innerHTML = `
-      <div class="pads-head"><b>LIVE PADS</b><span class="pads-msg"></span></div>
-      <canvas class="live-screen"></canvas>
+      <div class="pads-head"><h2 class="ph"><span>03</span> PLAY</h2><span class="pads-msg"></span></div>
+      <div class="screen-wrap">
+        <canvas class="live-screen"></canvas>
+        <span class="rec-dot" hidden>● REC</span>
+      </div>
+      <div class="scrub"><div class="scrub-fill"></div><div class="scrub-head"></div></div>
+      <div class="transport">
+        <button class="t-play">▶ PLAY</button>
+        <button class="t-rec">● REC</button>
+        <button class="t-full">FULL</button>
+      </div>
+      <a class="rec-save" hidden></a>
       <div class="pad-grid"></div>
       <div class="fn-row"></div>
+      <div class="sub-h">REPEAT</div>
       <div class="seg rep"></div>
       <div class="faders">
         <label><span>GATE</span><output class="o-gate"></output><input type="range" class="f-gate" min="10" max="100" value="60"></label>
@@ -92,8 +114,30 @@ export class PadMode {
         <label><span>BPM</span><output class="o-bpm"></output><input type="range" class="f-bpm" min="60" max="180" value="120"></label>
       </div>`;
     this.msg = r.querySelector(".pads-msg");
-    const screen = r.querySelector(".live-screen");
+    const screen = (this.screen = r.querySelector(".live-screen"));
     this.engine = new LiveEngine(screen);
+
+    // Transport
+    this.playBtn = r.querySelector(".t-play");
+    this.playBtn.addEventListener("click", () => (this.playing ? this.pause() : this.play()));
+    this.recBtn = r.querySelector(".t-rec");
+    this.recBtn.addEventListener("click", () => (this.rec ? this.recStop() : this.recStart()));
+    r.querySelector(".t-full").addEventListener("click", () => {
+      const w = r.querySelector(".screen-wrap");
+      if (document.fullscreenElement) document.exitFullscreen?.();
+      else (w.requestFullscreen || w.webkitRequestFullscreen)?.call(w);
+    });
+    this.scrubFill = r.querySelector(".scrub-fill");
+    this.scrubHead = r.querySelector(".scrub-head");
+    const scrub = r.querySelector(".scrub");
+    const seek = e => {
+      const c = this.clips[this.sel];
+      if (!c) return;
+      const b = scrub.getBoundingClientRect();
+      this.seek(Math.max(0, Math.min(0.9999, (e.clientX - b.left) / b.width)) * c.duration);
+    };
+    scrub.addEventListener("pointerdown", e => { e.preventDefault(); scrub.setPointerCapture(e.pointerId); seek(e); });
+    scrub.addEventListener("pointermove", e => { if (scrub.hasPointerCapture(e.pointerId)) seek(e); });
 
     // 16 pads
     const grid = r.querySelector(".pad-grid");
@@ -101,7 +145,7 @@ export class PadMode {
     for (let i = 0; i < 16; i++) {
       const p = document.createElement("button");
       p.className = "pad";
-      p.textContent = String(i + 1);
+      p.innerHTML = `<i></i><span>${i + 1}</span>`;
       p.addEventListener("pointerdown", e => { e.preventDefault(); this.trigger(i); });
       for (const t of ["pointerup", "pointercancel", "pointerleave"]) p.addEventListener(t, () => this.release(i));
       p.addEventListener("contextmenu", e => e.preventDefault());
@@ -129,7 +173,7 @@ export class PadMode {
     holdBtn("BLOOM", () => { this.bloomHeld = true; }, () => { this.bloomHeld = false; });
     holdBtn("ROLL", () => this.rollOn(), () => this.rollOff());
     toggle("HOLD", () => { this.holdOn = !this.holdOn; if (!this.holdOn && this.voice && !this.voice.held) this.stopVoice(); else if (this.voice) this.voice.latched = this.holdOn; return this.holdOn; });
-    toggle("REV", () => (this.revOn = !this.revOn));
+    toggle("REV", () => { this.revOn = !this.revOn; if (this.playing) this.restartT(); return this.revOn; });
     holdBtn("TAPE STOP", () => this.tapeStop(), () => {});
 
     // Repeat
@@ -160,6 +204,10 @@ export class PadMode {
 
   syncUI() {
     (this.repBtns || []).forEach((b, i) => b.classList.toggle("on", i === this.repeatIdx));
+    if (this.playBtn) {
+      this.playBtn.textContent = this.playing ? "■ STOP" : "▶ PLAY";
+      this.playBtn.classList.toggle("on", this.playing);
+    }
     this.light();
   }
   light() {
@@ -167,7 +215,141 @@ export class PadMode {
     (this.pads || []).forEach((p, i) => p.classList.toggle("on", !!v && v.src === this.sel && v.slice === i));
   }
 
-  // ---------- playing ----------
+  // ---------- main playback: the whole mosh on loop ----------
+  play() {
+    if (!this.loaded) return;
+    if (this.ac.state === "suspended") this.ac.resume();
+    this.killT();
+    this.playing = true;
+    this.ttape = null;
+    this.startT();
+    this.syncUI();
+  }
+  pause() {
+    this.playing = false;
+    this.ttape = null;
+    this.killT();
+    this.syncUI();
+  }
+  seek(pos) {
+    this.tpos = pos;
+    if (this.playing) this.restartT();
+    else if (!this.voice) this.shownIdx = Math.floor(pos * PAD_FPS);
+  }
+  restartT() { this.killT(); this.startT(); }
+
+  // A looping source from the current position (backwards when REV is on)
+  startT() {
+    const c = this.clips[this.sel], ac = this.ac;
+    if (!c) return;
+    const t = ac.currentTime + 0.01;
+    const buf = this.revOn ? c.rev : c.audio;
+    const loopEnd = Math.min(buf.duration, c.duration);
+    const n = ac.createBufferSource();
+    n.buffer = buf;
+    n.loop = true; n.loopStart = 0; n.loopEnd = loopEnd;
+    n.playbackRate.value = this.pitch;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(this.voice ? 0 : 1, t + 0.01);
+    n.connect(g).connect(this.out);
+    const off = this.revOn ? c.duration - this.tpos : this.tpos;
+    n.start(t, Math.max(0, Math.min(loopEnd - 0.001, off)));
+    this.tnode = { n, g, ducked: !!this.voice };
+    this.lastT = ac.currentTime;
+  }
+  killT() {
+    const x = this.tnode;
+    this.tnode = null;
+    if (!x) return;
+    const t = this.ac.currentTime;
+    try {
+      x.g.gain.cancelScheduledValues(t);
+      x.g.gain.setValueAtTime(x.g.gain.value, t);
+      x.g.gain.linearRampToValueAtTime(0, t + 0.01);
+      x.n.stop(t + 0.02);
+    } catch {}
+  }
+  // The pads take over the sound while they play; the loop comes back when they stop
+  duck(on) {
+    const x = this.tnode;
+    if (!x || x.ducked === on) return;
+    x.ducked = on;
+    const t = this.ac.currentTime;
+    x.g.gain.cancelScheduledValues(t);
+    x.g.gain.setTargetAtTime(on ? 0 : 1, t, 0.008);
+  }
+  // Advance the playhead on the audio clock, at the same speed as the sound
+  advanceT(t) {
+    const c = this.clips[this.sel];
+    const from = this.lastT;
+    this.lastT = t;
+    if (!this.playing || !c || t <= from) return;
+    let rate = this.pitch;
+    if (this.ttape) {
+      rate = this.pitch * Math.max(0, 1 - (t - this.ttape.t0) / TAPE_TIME);
+      if (t > this.ttape.t0 + TAPE_TIME) { this.pause(); return; }
+    }
+    const d = (t - from) * rate * (this.revOn ? -1 : 1);
+    this.tpos = (((this.tpos + d) % c.duration) + c.duration) % c.duration;
+  }
+
+  // ---------- REC: record the screen + the sound to a video ----------
+  recStart() {
+    if (!this.loaded || this.rec) return;
+    if (!this.screen.captureStream || typeof MediaRecorder === "undefined") { this.status("Recording isn't supported in this browser"); return; }
+    const types = ["video/mp4;codecs=avc1,mp4a.40.2", "video/mp4", "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
+    const type = types.find(t => MediaRecorder.isTypeSupported?.(t)) || "";
+    const stream = this.screen.captureStream(30);
+    const dest = this.ac.createMediaStreamDestination();
+    this.out.connect(dest);
+    for (const tr of dest.stream.getAudioTracks()) stream.addTrack(tr);
+    const chunks = [];
+    let mr;
+    try { mr = new MediaRecorder(stream, { ...(type && { mimeType: type }), videoBitsPerSecond: 8_000_000 }); }
+    catch (e) { try { this.out.disconnect(dest); } catch {} this.status(`Can't record: ${e.message || e}`); return; }
+    mr.ondataavailable = e => e.data.size && chunks.push(e.data);
+    mr.onstop = () => {
+      try { this.out.disconnect(dest); } catch {}
+      for (const tr of stream.getTracks()) tr.stop();
+      const mime = (mr.mimeType || type || "video/webm").split(";")[0];
+      const blob = new Blob(chunks, { type: mime });
+      const name = `mosh-live-${Date.now()}.${mime.includes("mp4") ? "mp4" : "webm"}`;
+      this.saveTake(blob, name);
+    };
+    mr.start(250);
+    this.rec = mr;
+    this.recBtn.classList.add("rec-on");
+    this.recBtn.textContent = "■ STOP REC";
+    this.root.querySelector(".rec-dot").hidden = false;
+    if (!this.playing && !this.voice) this.play();
+  }
+  recStop() {
+    if (!this.rec) return;
+    this.rec.stop();
+    this.rec = null;
+    this.recBtn.classList.remove("rec-on");
+    this.recBtn.textContent = "● REC";
+    this.root.querySelector(".rec-dot").hidden = true;
+  }
+  saveTake(blob, name) {
+    const a = this.root.querySelector(".rec-save");
+    if (a.href) URL.revokeObjectURL(a.href);
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.textContent = `SAVE TAKE (${(blob.size / 1048576).toFixed(1)} MB)`;
+    a.hidden = false;
+    a.onclick = async e => {
+      const file = new File([blob], name, { type: blob.type });
+      if (navigator.canShare?.({ files: [file] })) {
+        e.preventDefault();
+        try { await navigator.share({ files: [file], title: "MOSH" }); } catch {}
+      }
+    };
+    this.o.log?.(`rec: ${name}, ${(blob.size / 1048576).toFixed(1)} MB`);
+  }
+
+  // ---------- pads ----------
   repeatBeats(t) {
     if (this.rollHeld) return Math.pow(1 / 8, Math.min(1, (t - this.rollT0) / ROLL_TIME));   // 1/4 -> 1/32
     return REPEATS[this.repeatIdx][1];
@@ -182,9 +364,10 @@ export class PadMode {
     const v = { src: this.sel, slice: i, start: i * len, len, rev: this.revOn, held: true, latched: this.holdOn,
       segs: [], nodes: [], elapsed: 0, lastAt: t };
     this.voice = v;
+    this.duck(true);
     this.lastSlice = i;
     const beats = this.repeatBeats(t);
-    this.play(v, t, beats ? Math.min(len, ((beats * 60) / this.bpm) * this.gate) : len);
+    this.play1(v, t, beats ? Math.min(len, ((beats * 60) / this.bpm) * this.gate) : len);
     this.light();
     this.o.onHit?.();
   }
@@ -200,11 +383,12 @@ export class PadMode {
   stopVoice() {
     if (this.voice) this.cut(this.voice, this.ac.currentTime);
     this.voice = null;
+    this.duck(false);
     this.light();
   }
 
   // Start one piece of the slice at time `at`, lasting `dur` seconds of the clip
-  play(v, at, dur) {
+  play1(v, at, dur) {
     const c = this.clips[v.src], ac = this.ac;
     const buf = v.rev ? c.rev : c.audio;
     const off = Math.max(0, Math.min(buf.duration - 0.001, v.rev ? c.duration - (v.start + v.len) : v.start));
@@ -244,21 +428,23 @@ export class PadMode {
       const interval = (beats * 60) / this.bpm;
       let next = v.lastAt + interval;
       while (next < t + 0.05) {
-        this.play(v, next, Math.min(v.len, interval * this.gate));
+        this.play1(v, next, Math.min(v.len, interval * this.gate));
         v.lastAt = next;
         next = v.lastAt + (this.repeatBeats(next) * 60) / this.bpm;
       }
     } else {
       const last = v.segs[v.segs.length - 1];
       const end = last ? last.at + last.dur / this.pitch : t;
-      if (end < t + 0.05) { this.play(v, end, v.len); v.lastAt = end; }
+      if (end < t + 0.05) { this.play1(v, end, v.len); v.lastAt = end; }
     }
   }
 
   setPitch(p) {
     this.pitch = p;
+    const t = this.ac?.currentTime ?? 0;
     const v = this.voice;
-    if (v && !v.tape) for (const { n } of v.nodes) n.playbackRate.setTargetAtTime(p, this.ac.currentTime, 0.02);
+    if (v && !v.tape) for (const { n } of v.nodes) n.playbackRate.setTargetAtTime(p, t, 0.02);
+    if (this.tnode && !this.ttape) this.tnode.n.playbackRate.setValueAtTime(p, t);
   }
 
   rollOn() {
@@ -274,11 +460,21 @@ export class PadMode {
     if (v && !v.held && !v.latched) this.stopVoice();
   }
 
-  // TAPE STOP: sound and picture slow to a halt together
+  // TAPE STOP: sound and picture slow to a halt together (the pad playing, or the main loop)
   tapeStop() {
     const v = this.voice;
-    if (!v || v.tape) return;
+    if (!this.loaded) return;
     const t0 = this.ac.currentTime;
+    if (!v) {
+      if (!this.playing || this.ttape || !this.tnode) return;
+      this.ttape = { t0 };
+      const { n } = this.tnode;
+      n.playbackRate.cancelScheduledValues(t0);
+      n.playbackRate.setValueAtTime(this.pitch, t0);
+      n.playbackRate.linearRampToValueAtTime(0.0001, t0 + TAPE_TIME);
+      return;
+    }
+    if (v.tape) return;
     v.tape = { t0 };
     for (const { n, g, at } of v.nodes) {
       try {
@@ -302,9 +498,10 @@ export class PadMode {
   }
 
   // ---------- the frame loop ----------
-  start() {
+  startLoop() {
     if (this.raf || !this.loaded) return;
     let last = performance.now();
+    this.lastT = this.ac.currentTime;
     const loop = now => {
       this.raf = requestAnimationFrame(loop);
       const dt = Math.min(0.1, (now - last) / 1000);
@@ -313,25 +510,34 @@ export class PadMode {
     };
     this.raf = requestAnimationFrame(loop);
   }
-  stop() { if (this.raf) cancelAnimationFrame(this.raf); this.raf = 0; }
+  stopLoop() { if (this.raf) cancelAnimationFrame(this.raf); this.raf = 0; }
 
   tick(dt) {
     const t = this.ac.currentTime;
     this.schedule(t);
-    const v = this.voice;
-    let src = this.shownSrc, idx = this.shownIdx;
+    this.advanceT(t);
+    const v = this.voice, c = this.clips[this.sel];
+    let src = this.shownSrc, idx = this.shownIdx, pos = this.tpos;
     if (v) {
       // The picture follows the sound: same slice, same position, same speed
       while (v.segs.length > 1 && v.segs[1].at <= t) { v.segs.shift(); v.elapsed = 0; }
       const seg = v.segs[0];
       if (seg && t >= seg.at) v.elapsed += dt * this.rateAt(v, t);
       const e = Math.min(v.elapsed, seg ? seg.dur : 0);
-      const pos = v.rev ? v.start + v.len - e - 1e-4 : v.start + e;
+      pos = v.rev ? v.start + v.len - e - 1e-4 : v.start + e;
       src = v.src;
       idx = Math.floor(pos * PAD_FPS);
-      if (v.tape && t > v.tape.t0 + TAPE_TIME) { this.voice = null; this.light(); }
+      if (v.tape && t > v.tape.t0 + TAPE_TIME) { this.voice = null; this.duck(false); this.light(); }
+    } else if (this.playing) {
+      src = this.sel;
+      idx = Math.floor(this.tpos * PAD_FPS);
     }
+    if (c) idx = Math.max(0, Math.min(c.n - 1, idx));
     this.shownSrc = src; this.shownIdx = idx;
+    if (c && this.scrubHead) {
+      this.scrubHead.style.left = `${(pos / c.duration) * 100}%`;
+      this.scrubFill.style.width = `${(this.tpos / c.duration) * 100}%`;
+    }
     this.engine.render({ src, idx, mosh: this.moshHeld, bloom: this.bloomHeld }, dt);
   }
 }

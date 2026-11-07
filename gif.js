@@ -1,14 +1,14 @@
-// GifCities in MOSH: the Internet Archive's GeoCities GIFs as clip material.
+// GifCities in MOSH: the Internet Archive's GeoCities GIFs as clip material, curated into VIBES.
 // GifCities' search has no CORS (the browser can't call it), but the GIF files themselves do
 // (blob.gifcities.org sends Access-Control-Allow-Origin: *). So tools/gifcities-pull.mjs builds
-// an index (clips/gifcities/manifest.json: id, size, search terms, source page) that the app
-// searches locally, and each GIF is fetched live from the archive when you pick it.
+// an index (clips/gifcities/manifest.json: id, size, frames, vibe, queries, source page) that the
+// app browses locally, and each GIF is fetched live from the archive when you pick it.
 
 const INDEX_URL = "clips/gifcities/manifest.json";
 let index = null;
 
 // Prepare a GIF for moshing: 4x upscale with nearest-neighbour (crisp pixels, capped at 960 px
-// wide), looped to `seconds` (animated GIFs repeat; one-shot or still GIFs hold their last frame),
+// wide), looped to `seconds` (animated GIFs repeat; one-shot GIFs hold their last frame),
 // 30 fps, H.264 MP4. Shared with tools/test-gif.mjs.
 export function gifArgs(inp, out, seconds = 2) {
   return [
@@ -20,30 +20,37 @@ export function gifArgs(inp, out, seconds = 2) {
 
 export async function loadIndex() {
   if (index) return index;
-  const res = await fetch(INDEX_URL);
+  const res = await fetch(INDEX_URL, { cache: "no-cache" });
   if (!res.ok) throw new Error(`couldn't load the GifCities index (HTTP ${res.status})`);
   index = await res.json();
-  for (const g of index.gifs) g.hay = `${g.t.join(" ")} ${g.src}`.toLowerCase();
+  index.vibes ||= [];
+  for (const g of index.gifs) g.hay = `${g.v || ""} ${g.t.join(" ")} ${g.src}`.toLowerCase();
   return index;
 }
 
+export const vibes = () => index?.vibes || [];
 export const gifURL = g => `${index?.gifBase || "https://blob.gifcities.org/gifcities/"}${g.id}.gif`;
 
-// Every GIF matching all words of the query (by search term or original GeoCities address).
-// Empty query: a shuffled sample of everything.
-export function searchGifs(q) {
+// GIFs in a vibe ("" = all) matching all words of the query. Always shuffled, so every visit
+// shows something new.
+export function searchGifs(q, vibe = "") {
   if (!index) return [];
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const hits = words.length ? index.gifs.filter(g => words.every(w => g.hay.includes(w))) : index.gifs.slice();
-  if (!words.length) shuffle(hits);
-  return hits;
+  const hits = index.gifs.filter(g => (!vibe || g.v === vibe) && words.every(w => g.hay.includes(w)));
+  return shuffle(hits);
 }
 
-export function randomGif(except = null) {
-  const all = index?.gifs || [];
+// A random GIF, from one vibe if given; `except` is never returned
+export function randomGif(except = null, vibe = "") {
+  const all = (index?.gifs || []).filter(g => !vibe || g.v === vibe);
   if (!all.length) return null;
-  for (let i = 0; i < 10; i++) { const g = all[(Math.random() * all.length) | 0]; if (g !== except) return g; }
+  for (let i = 0; i < 20; i++) { const g = all[(Math.random() * all.length) | 0]; if (g !== except) return g; }
   return all[0];
+}
+
+export function randomVibe() {
+  const v = vibes();
+  return v.length ? v[(Math.random() * v.length) | 0] : "";
 }
 
 function shuffle(a) {
@@ -64,20 +71,25 @@ export async function prepareGif(ffmpeg, g) {
   return new File([data], `gifcities-${g.id}.mp4`, { type: "video/mp4" });
 }
 
-// The full-screen search sheet: a search box, then a 3-column grid of animated GIFs.
+// The full-screen sheet: vibe chips, a search box, then a 3-column grid of animated GIFs.
 // Tap one: onPick(slot, gif), and the sheet closes.
 export class GifSheet {
   constructor(onPick) {
     this.onPick = onPick;
+    this.vibe = "";
     const el = (this.el = document.createElement("div"));
     el.className = "gsheet";
     el.hidden = true;
     el.setAttribute("role", "dialog");
-    el.setAttribute("aria-label", "GifCities search");
+    el.setAttribute("aria-label", "GifCities");
     el.innerHTML = `
       <div class="gsheet-head">
-        <input type="search" class="gsearch" placeholder="search GifCities…" enterkeyhint="search" autocomplete="off">
-        <button class="gclose" aria-label="Close">✕</button>
+        <div class="gbar">
+          <input type="search" class="gsearch" placeholder="search GifCities…" enterkeyhint="search" autocomplete="off">
+          <button class="gshuffle" aria-label="Shuffle">↻</button>
+          <button class="gclose" aria-label="Close">✕</button>
+        </div>
+        <div class="gvibes"></div>
       </div>
       <p class="gnote"></p>
       <div class="ggrid"></div>
@@ -88,7 +100,9 @@ export class GifSheet {
     this.grid = el.querySelector(".ggrid");
     this.note = el.querySelector(".gnote");
     this.more = el.querySelector(".gmore");
+    this.chips = el.querySelector(".gvibes");
     el.querySelector(".gclose").addEventListener("click", () => this.close());
+    el.querySelector(".gshuffle").addEventListener("click", () => this.render());
     let t = 0;
     this.input.addEventListener("input", () => { clearTimeout(t); t = setTimeout(() => this.render(), 200); });
     this.more.addEventListener("click", () => this.page());
@@ -103,10 +117,21 @@ export class GifSheet {
     try {
       const idx = await loadIndex();
       this.note.textContent = "";
-      this.input.placeholder = `search ${idx.count.toLocaleString()} GifCities GIFs…`;
+      this.input.placeholder = `search ${idx.count.toLocaleString()} GIFs…`;
+      if (!this.chips.childElementCount) this.buildChips(idx);
       if (!this.results) this.render();
     } catch (e) {
       this.note.textContent = e.message || String(e);
+    }
+  }
+
+  buildChips(idx) {
+    for (const v of ["", ...idx.vibes]) {
+      const b = document.createElement("button");
+      b.textContent = v || "all";
+      b.dataset.vibe = v;
+      b.addEventListener("click", () => { this.vibe = v; this.render(); });
+      this.chips.append(b);
     }
   }
 
@@ -116,25 +141,29 @@ export class GifSheet {
   }
 
   render() {
-    this.results = searchGifs(this.input.value);
+    for (const b of this.chips.children) b.classList.toggle("on", b.dataset.vibe === this.vibe);
+    const q = this.input.value.trim();
+    this.results = searchGifs(q, this.vibe);
     this.shown = 0;
     this.grid.replaceChildren();
-    this.note.textContent = this.input.value.trim() ? `${this.results.length} GIFs` : "";
-    if (!this.results.length && this.input.value.trim()) this.note.textContent = `Nothing for "${this.input.value.trim()}". Try fire, eye, spiral, space, dance…`;
+    this.el.scrollTop = 0;
+    this.note.textContent = q ? `${this.results.length} GIFs` : "";
+    if (!this.results.length) this.note.textContent = q ? `Nothing for "${q}" here. Try another vibe, or a word like moon, eye, statue…` : "Nothing here yet.";
     this.page();
   }
 
   page() {
-    const next = this.results.slice(this.shown, this.shown + 60);
+    const next = this.results.slice(this.shown, this.shown + 48);
     for (const g of next) {
       const b = document.createElement("button");
       b.className = "gcell";
-      b.title = g.t.join(", ");
+      b.title = `${g.v ? g.v + ": " : ""}${g.t.join(", ")}`;
       const img = document.createElement("img");
       img.loading = "lazy";
       img.decoding = "async";
       img.alt = g.t[0];
       img.src = gifURL(g);
+      img.onerror = () => b.remove();                        // gone from the archive: drop it
       b.append(img);
       b.addEventListener("click", () => { this.close(); this.onPick(this.slot, g); });
       this.grid.append(b);

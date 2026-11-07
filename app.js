@@ -1,6 +1,6 @@
 // MOSH: the UI and the ffmpeg.wasm plumbing. The datamosh itself is in mosh.js, the ffmpeg
 // command lines in pipeline.js, the sound in wav.js. The living background is field.js, the
-// logo logo.js, the live pads pads.js + live.js.
+// logo logo.js, the live pads pads.js + live.js, GifCities gif.js.
 import { FFmpeg } from "./vendor/ffmpeg/index.js";
 import { fetchFile } from "./vendor/util/index.js";
 import { moshAvi } from "./mosh.js";
@@ -10,9 +10,9 @@ import { Field, patternImage } from "./field.js";
 import { Logo } from "./logo.js";
 import { sfx, audio } from "./sfx.js";
 import { PadMode } from "./pads.js";
-import { GifSheet, loadIndex, randomGif, prepareGif, gifURL } from "./gif.js";
+import { GifSheet, loadIndex, randomGif, randomVibe, prepareGif, gifURL, gifArgs } from "./gif.js";
 
-const BUILD = 9;                          // shown in the LOG, so a screenshot tells which version ran
+const BUILD = 10;                         // shown in the LOG, so a screenshot tells which version ran
 
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
@@ -24,11 +24,11 @@ const ui = {
   warn: $("warn"), keepA: $("keepA"), keepAOut: $("keepAOut"), bloom: $("bloom"), bloomOut: $("bloomOut"),
   bloomAt: $("bloomAt"), bloomAtOut: $("bloomAtOut"), mosh: $("mosh"), bar: $("bar"), status: $("status"),
   out: $("out"), save: $("save"), log: $("log"),
-  thumbA: $("thumbA"), thumbB: $("thumbB"), randBoth: $("randBoth"), randSettings: $("randSettings"),
+  thumbA: $("thumbA"), thumbB: $("thumbB"), randBoth: $("randBoth"), randSettings: $("randSettings"), autoMosh: $("autoMosh"),
 };
 
 const clips = { A: null, B: null };       // { file, duration, width, height }
-let ffmpeg = null, ready = null, result = null, busy = false;
+let ffmpeg = null, ready = null, result = null, busy = false, prepping = false;
 
 // ---------- small helpers ----------
 const fmtSec = s => `${s.toFixed(1)} s`;
@@ -42,6 +42,8 @@ function setProgress(frac, text) {
   if (text) ui.status.textContent = text;
 }
 const extOf = name => (name.match(/\.[a-z0-9]{1,5}$/i)?.[0] ?? ".mp4").toLowerCase();
+const isGif = f => f.type === "image/gif" || /\.gif$/i.test(f.name);
+const card = which => (which === "A" ? ui.cardA : ui.cardB);
 
 // Read duration and size with a throwaway <video> (no decoding of the whole file)
 function probe(file) {
@@ -62,7 +64,7 @@ function probe(file) {
   });
 }
 
-// One still frame from a clip, as a canvas (for the background)
+// One still frame from a clip, as a canvas
 function grabFrame(file, at = 0.2) {
   return new Promise(resolve => {
     const v = document.createElement("video");
@@ -82,6 +84,12 @@ function grabFrame(file, at = 0.2) {
     v.src = url;
   });
 }
+function copyCanvas(src) {
+  const c = document.createElement("canvas");
+  c.width = src.width; c.height = src.height;
+  c.getContext("2d").drawImage(src, 0, 0);
+  return c;
+}
 
 // ---------- the living background and the logo ----------
 let swipe = [1, 1];                       // last drag direction: the logo bursts this way
@@ -100,8 +108,8 @@ ui.mosh.addEventListener("pointerdown", () => {
 });
 for (const t of ["pointerup", "pointercancel", "pointerleave"]) ui.mosh.addEventListener(t, () => logo.hold(false));
 
-// LIVE PADS: the finished mosh lands here. Every pad hit is a shockwave + a logo burst;
-// their MOSH keeps the logo melting.
+// LIVE PADS: the finished mosh lands here and plays on loop. Every pad hit is a shockwave + a
+// logo burst; their MOSH keeps the logo melting.
 const pads = new PadMode($("pads"), {
   loadFFmpeg: async () => {
     if (busy) throw new Error("wait for the render to finish first");
@@ -114,13 +122,13 @@ const pads = new PadMode($("pads"), {
 });
 
 // ---------- picking clips ----------
-// A clip lands in a slot: from the gallery (a video file) or from GifCities (a GIF turned into
-// an MP4; `thumb` is then the GIF's own URL, so the slot shows it animating).
+// A clip lands in a slot: from the gallery (a video, or a GIF that gets converted) or from
+// GifCities. `thumb` is a GIF URL, so the slot shows it animating; videos show a still.
 async function setClip(which, file, thumb = null, label = null) {
   const info = await probe(file);
   clips[which] = { file, ...info };
-  const card = which === "A" ? ui.cardA : ui.cardB, name = which === "A" ? ui.nameA : ui.nameB;
-  card.classList.add("ok");
+  const name = which === "A" ? ui.nameA : ui.nameB;
+  card(which).classList.add("ok");
   name.textContent = `${label || file.name}${info.duration ? ` · ${fmtSec(info.duration)}` : ""}`;
   if (which === "A" && info.duration) {
     ui.keepA.max = Math.max(0.3, info.duration).toFixed(1);
@@ -142,58 +150,73 @@ async function setClip(which, file, thumb = null, label = null) {
   // The background becomes Clip A's picture
   if (which === "A") {
     if (!frame) frame = await grabFrame(file);
-    if (frame) {
-      // the slot keeps its own canvas; the field gets a copy
-      const c = document.createElement("canvas");
-      c.width = frame.width; c.height = frame.height;
-      c.getContext("2d").drawImage(frame, 0, 0);
-      field.setImage(c);
-    }
+    if (frame) field.setImage(copyCanvas(frame));
   }
 }
 
-// GifCities: fetch the GIF from the archive, 4x / 2 s / MP4 in ffmpeg.wasm, into the slot
-let prepping = false;
-async function useGif(which, g) {
-  if (!g || busy || prepping) return false;
+// Run a GIF job (GifCities or a GIF from the gallery) with the slot showing it's busy
+async function gifJob(which, job) {
+  if (busy || prepping) return false;
   prepping = true; refresh();
+  card(which).classList.add("prep");
   try {
     await loadFFmpeg();
     setProgress(0.3, `GIF → MP4 (${which})`);
-    log(`gifcities ${which}: ${g.id} [${g.t.join(", ")}] ${g.w}x${g.h}`);
-    const file = await prepareGif(ffmpeg, g);
-    await setClip(which, file, gifURL(g), `gifcities: ${g.t[0]}`);
+    await job();
     return true;
   } catch (e) {
     log(`ERROR: ${e.message || e}`);
     setProgress(0, `ERROR: ${(e.message || e).toString().slice(0, 60)}`);
     return false;
   } finally {
+    card(which).classList.remove("prep");
     prepping = false; refresh();
   }
 }
+
+// GifCities: fetch the GIF from the archive, 4x / 2 s / MP4 in ffmpeg.wasm, into the slot
+const useGif = (which, g) => !g ? Promise.resolve(false) : gifJob(which, async () => {
+  log(`gifcities ${which}: ${g.id} [${g.v || ""}: ${g.t.join(", ")}] ${g.w}x${g.h}${g.f ? `, ${g.f} frames` : ""}`);
+  const file = await prepareGif(ffmpeg, g);
+  await setClip(which, file, gifURL(g), `${g.v ? g.v + " · " : ""}${g.t[0]}`);
+});
+
+// A GIF from the gallery gets the same treatment
+const useGifFile = (which, f) => gifJob(which, async () => {
+  await ffmpeg.writeFile("in.gif", await fetchFile(f));
+  const ret = await ffmpeg.exec(gifArgs("in.gif", "in.mp4"));
+  try { await ffmpeg.deleteFile("in.gif"); } catch {}
+  if (ret !== 0) throw new Error("couldn't convert the GIF (see LOG)");
+  const data = await ffmpeg.readFile("in.mp4");
+  try { await ffmpeg.deleteFile("in.mp4"); } catch {}
+  await setClip(which, new File([data], f.name.replace(/\.gif$/i, ".mp4"), { type: "video/mp4" }), URL.createObjectURL(f), f.name);
+});
 
 const sheet = new GifSheet((slot, g) => useGif(slot, g));
 
 async function dice(which) {
   try { await loadIndex(); } catch (e) { log(`ERROR: ${e.message || e}`); return; }
-  await useGif(which, randomGif());
+  await useGif(which, randomGif(null, randomVibe()));
 }
 
-// RANDOM BOTH: two different random GIFs, and (if ticked) random mosh settings
+// RANDOM BOTH: two different GIFs from the same vibe, (if ticked) random mosh settings, and
+// (if ticked) straight into the mosh
 async function randomBoth() {
   if (busy || prepping) return;
   try { await loadIndex(); } catch (e) { log(`ERROR: ${e.message || e}`); return; }
-  const a = randomGif(), b = randomGif(a);
+  const vibe = randomVibe();
+  const a = randomGif(null, vibe), b = randomGif(a, vibe);
+  log(`random both: vibe ${vibe || "any"}`);
   if (!(await useGif("A", a))) return;
-  await useGif("B", b);
+  if (!(await useGif("B", b))) return;
   if (ui.randSettings.checked) {
     const max = +ui.keepA.max;
-    ui.keepA.value = (0.3 + Math.random() * (max - 0.3) * 0.9).toFixed(1);
+    ui.keepA.value = (0.3 + Math.random() * (max - 0.3) * 0.8).toFixed(1);
     ui.bloom.value = Math.random() < 0.35 ? 0 : 1 + ((Math.random() * 30) | 0);
     ui.bloomAt.value = (Math.random() * 100) | 0;
     updateLabels();
   }
+  if (ui.autoMosh.checked) doMosh();
 }
 
 function refresh() {
@@ -292,7 +315,7 @@ const rm = async name => { try { await ffmpeg.deleteFile(name); } catch {} };
 async function doMosh() {
   if (busy || prepping || !clips.A || !clips.B) return;
   busy = true; document.body.classList.add("busy");
-  ui.mosh.disabled = true; ui.save.hidden = true;
+  ui.mosh.disabled = true; ui.randBoth.disabled = true; ui.save.hidden = true;
   const inA = `a${extOf(clips.A.file.name)}`, inB = `b${extOf(clips.B.file.name)}`;
   try {
     await loadFFmpeg();
@@ -345,9 +368,10 @@ async function doMosh() {
   } finally {
     busy = false; document.body.classList.remove("busy");
     ui.mosh.disabled = !clips.A || !clips.B;
+    ui.randBoth.disabled = false;
   }
-  // The finished mosh goes onto the pads (the pad screen is the player). If that fails,
-  // fall back to the plain video player.
+  // The finished mosh goes onto the pads, where it plays on loop (the pad screen is the
+  // player). If that fails, fall back to the plain video player.
   if (result && ui.out.src === result.url && !result.onPads) {
     result.onPads = true;
     const ok = await pads.loadMoshed(new File([result.blob], result.name, { type: "video/mp4" }), result.w, result.h);
@@ -370,7 +394,13 @@ async function save() {
 
 // ---------- wire up ----------
 for (const [which, input] of [["A", ui.fileA], ["B", ui.fileB]]) {
-  input.addEventListener("change", () => { const f = input.files?.[0]; if (f) setClip(which, f); });
+  input.addEventListener("change", () => {
+    const f = input.files?.[0];
+    input.value = "";
+    if (!f) return;
+    if (isGif(f)) useGifFile(which, f);
+    else setClip(which, f);
+  });
 }
 // Each slot: [GALLERY] [GIFCITIES] [🎲]; tapping the card itself opens the gallery too
 for (const b of document.querySelectorAll(".slot-btns button")) {
@@ -381,8 +411,10 @@ for (const b of document.querySelectorAll(".slot-btns button")) {
     else dice(which);
   });
 }
-ui.cardA.addEventListener("click", () => ui.fileA.click());
-ui.cardB.addEventListener("click", () => ui.fileB.click());
+for (const [c, input] of [[ui.cardA, ui.fileA], [ui.cardB, ui.fileB]]) {
+  c.addEventListener("click", () => { if (!prepping) input.click(); });
+  c.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
+}
 ui.randBoth.addEventListener("click", randomBoth);
 for (const s of [ui.keepA, ui.bloom, ui.bloomAt]) s.addEventListener("input", updateLabels);
 ui.mosh.addEventListener("click", doMosh);
