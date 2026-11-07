@@ -13,10 +13,9 @@ import { Field, patternImage } from "./field.js";
 import { Logo } from "./logo.js";
 import { sfx, audio } from "./sfx.js";
 import { PadMode } from "./pads.js";
-import { Layout } from "./layout.js";
 import { GifSheet, loadIndex, randomGif, randomVibe, prepareGif, gifURL, gifArgs } from "./gif.js";
 
-const BUILD = 15;                         // shown in the LOG, so a screenshot tells which version ran
+const BUILD = 16;                         // shown in the LOG, so a screenshot tells which version ran
 
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
@@ -35,16 +34,11 @@ let ffmpeg = null, ready = null, result = null, busy = false, prepping = false;
 
 // ---------- small helpers ----------
 const fmtSec = s => `${s.toFixed(1)} s`;
-// The LOG: its last line sits in the status bar; tap it for the whole log as an overlay
-const logline = $("logline"), logbox = $("logbox");
 function log(line) {
   ui.log.textContent += line + "\n";
   if (ui.log.textContent.length > 60000) ui.log.textContent = ui.log.textContent.slice(-40000);
   ui.log.scrollTop = ui.log.scrollHeight;
-  logline.textContent = `LOG ▸ ${line}`;
 }
-logline.addEventListener("click", () => { logbox.hidden = !logbox.hidden; ui.log.scrollTop = ui.log.scrollHeight; });
-$("logclose").addEventListener("click", () => { logbox.hidden = true; });
 function setProgress(frac, text) {
   if (frac != null) ui.bar.style.width = `${Math.round(Math.min(1, Math.max(0, frac)) * 100)}%`;
   if (text) ui.status.textContent = text;
@@ -118,7 +112,7 @@ for (const t of ["pointerup", "pointercancel", "pointerleave"]) ui.mosh.addEvent
 
 // LIVE PADS: the finished mosh lands here and plays on loop. Every pad hit is a shockwave + a
 // logo burst; their MOSH keeps the logo melting.
-const pads = new PadMode({ play: $("p-play"), pads: $("p-pads") }, {
+const pads = new PadMode({ play: $("p-play"), fx: $("p-fx"), pads: $("p-pads") }, {
   loadFFmpeg: async () => { await loadFFmpeg(); return ffmpeg; },   // ffmpeg.wasm runs one job at a time anyway
   log,
   onHit: () => { logo.burst(...swipe); field.shock(innerWidth / 2, innerHeight / 2, 0.7); },
@@ -388,10 +382,14 @@ async function showResult(blob, { w, h, duration, name = `mosh-${Date.now()}.mp4
   if (result) URL.revokeObjectURL(result.url);
   result = { blob, url: URL.createObjectURL(blob), name, w, h };
   ui.out.src = result.url; ui.save.hidden = false;
-  if (duration > PAD_MAX + 0.05) { ui.out.hidden = true; pads.previewVideo(blob, label); return true; }
+  const play = $("p-play");
+  play.hidden = false;
+  if (duration > PAD_MAX + 0.05) { ui.out.hidden = true; pads.previewVideo(blob, label); syncSticky(); return true; }
   const ok = await pads.loadMoshed(new File([blob], name, { type: "video/mp4" }), w, h);
   ui.out.hidden = ok;
+  play.hidden = !ok;
   if (!ok) ui.out.play().catch(() => {});
+  syncSticky();
   return ok;
 }
 
@@ -513,11 +511,25 @@ updateLabels();
 refresh();
 log(`MOSH build ${BUILD}`);
 
-// The device: 1600x900, scaled to fit; logs the real size of the smallest text (25 design px)
-const layout = new Layout({
-  device: $("device"), rotate: $("rotate"), toggle: $("portraitMode"), anyway: $("rotateAnyway"),
-  onFit: (s, turned) => log(`layout: ${innerWidth}x${innerHeight}${turned ? " turned" : ""}, scale ${s.toFixed(3)}, smallest text ${(25 * s).toFixed(1)}px`),
-});
+// The collapsible sections (PADS, FX, CHAIN, LOG): closed by default, each opens on its own,
+// and the phone remembers which were open. With PADS open, the result screen sticks to the top.
+const SEC_KEY = "mosh.open";
+let openSecs = {};
+try { openSecs = JSON.parse(localStorage.getItem(SEC_KEY) || "{}"); } catch {}
+const padsSec = document.querySelector('details[data-sec="pads"]');
+const syncSticky = () => document.body.classList.toggle("pads-open", padsSec.open && !$("p-play").hidden);
+for (const d of document.querySelectorAll("details.sec")) {
+  d.open = !!openSecs[d.dataset.sec];
+  d.addEventListener("toggle", () => {
+    openSecs[d.dataset.sec] = d.open;
+    localStorage.setItem(SEC_KEY, JSON.stringify(openSecs));
+    syncSticky();
+    if (d.dataset.sec === "log" && d.open) ui.log.scrollTop = ui.log.scrollHeight;
+  });
+}
+syncSticky();
+// Finger movements are plain page pixels now (nothing is scaled or turned)
+const layout = { toLocal: (x, y) => ({ x, y }) };
 
 // ---------- DAISY CHAIN ----------
 // A random GifCities clip, ready to mosh: { file, label }
@@ -552,7 +564,6 @@ const daisy = new Daisy($("daisy"), {
   toSlot: (which, item) => setClip(which, new File([item.blob], `${item.id}.mp4`, { type: "video/mp4" }), null, item.label),
   toPad: (item, url) => pads.arm(new File([item.blob], `${item.id}.mp4`, { type: "video/mp4" }), item.label, url),
 });
-$("daisyBtn").addEventListener("click", () => daisy.toggle());
 if (!field.ok) log(`background off: ${field.error}`);
 
 // Installable, and the engine is cached after the first run. When a new version of the

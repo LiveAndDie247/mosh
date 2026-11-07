@@ -18,11 +18,12 @@ const TAPE_TIME = 0.9;        // seconds for TAPE STOP to reach a halt
 const ROLL_TIME = 2.0;        // seconds for ROLL to go from 1/4 to 1/32
 
 export class PadMode {
-  // roots: { play: the center panel (screen, transport, COLOR, GLITCH), pads: the right panel
-  // (pads, function row, REPEAT, faders) }. Both are built right away, so the device is complete
-  // before the first mosh.
+  // roots: { play: the result screen (screen, scrub, PLAY/REC/FULL), fx: the FX section (COLOR,
+  // GLITCH, AMOUNT), pads: the PADS section (pads, function row, REPEAT, faders) }. All built
+  // right away.
   constructor(roots, opts) {
     this.root = roots.play;
+    this.fxRoot = roots.fx;
     this.padRoot = roots.pads;
     this.o = opts;            // { loadFFmpeg, log, onHit, onMosh, onFrame }
     this.clips = {};
@@ -45,7 +46,7 @@ export class PadMode {
     try { this.build(); }
     catch (e) {
       this.buildError = e;
-      this.root.innerHTML = `<h2 class="ph"><span>03</span> PLAY</h2><p class="screen-msg">The live screen needs WebGL2: ${e.message || e}</p>`;
+      this.root.innerHTML = `<p class="screen-msg">The live screen needs WebGL2: ${e.message || e}</p>`;
     }
   }
 
@@ -167,9 +168,8 @@ export class PadMode {
 
   // ---------- the pad UI ----------
   build() {
-    const r = this.root, pr = this.padRoot;
+    const r = this.root, pr = this.padRoot, fxr = this.fxRoot;
     r.innerHTML = `
-      <h2 class="ph"><span>03</span> PLAY<span class="pads-msg"></span></h2>
       <div class="screen-wrap">
         <canvas class="live-screen"></canvas>
         <video class="live-video" loop playsinline hidden></video>
@@ -182,7 +182,9 @@ export class PadMode {
         <button class="t-rec">● REC</button>
         <button class="t-full">FULL</button>
       </div>
-      <a class="rec-save" hidden></a>
+      <p class="pads-msg"></p>
+      <a class="rec-save" hidden></a>`;
+    fxr.innerHTML = `
       <div class="fx-head"><span class="sub-h">COLOR</span></div>
       <div class="seg colors"></div>
       <div class="fx-head"><span class="sub-h">GLITCH</span><button class="fx-rand">🎲 FX</button><button class="fx-clear">CLEAR</button></div>
@@ -191,7 +193,6 @@ export class PadMode {
         <label><span>AMOUNT</span><output class="o-amt"></output><input type="range" class="f-amt" min="0" max="100" value="50"></label>
       </div>`;
     pr.innerHTML = `
-      <h2 class="ph"><span>04</span> PADS</h2>
       <div class="pad-grid"></div>
       <div class="fn-row"></div>
       <div class="sub-h">REPEAT</div>
@@ -213,13 +214,12 @@ export class PadMode {
     });
     this.recBtn = r.querySelector(".t-rec");
     this.recBtn.addEventListener("click", () => (this.rec ? this.recStop() : this.recStart()));
-    // FULL: the whole app full screen, locked sideways (the lock only works in full screen)
+    // FULL: just the video, full screen (no orientation lock)
     r.querySelector(".t-full").addEventListener("click", async () => {
       try {
         if (document.fullscreenElement) { await document.exitFullscreen(); return; }
-        const el = document.documentElement;
-        await (el.requestFullscreen || el.webkitRequestFullscreen).call(el, { navigationUI: "hide" });
-        try { await globalThis.screen.orientation?.lock?.("landscape"); } catch (e) { this.o.log?.(`orientation lock: ${e.message || e}`); }
+        const el = r.querySelector(".screen-wrap");
+        await (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
       } catch (e) {
         this.o.log?.(`fullscreen: ${e.message || e}`);
       }
@@ -284,7 +284,7 @@ export class PadMode {
     });
 
     // Faders
-    const f = sel => r.querySelector(sel) || pr.querySelector(sel);
+    const f = sel => r.querySelector(sel) || pr.querySelector(sel) || fxr.querySelector(sel);
     const gate = f(".f-gate"), pitch = f(".f-pitch"), bpm = f(".f-bpm");
     const upd = () => {
       this.gate = +gate.value / 100;
@@ -299,7 +299,7 @@ export class PadMode {
     upd();
 
     // FX: one COLOR mode, any number of GLITCH layers, one AMOUNT
-    const colors = r.querySelector(".colors");
+    const colors = fxr.querySelector(".colors");
     this.colorBtns = COLORS.map((label, i) => {
       const b = document.createElement("button");
       b.textContent = label;
@@ -307,7 +307,7 @@ export class PadMode {
       colors.append(b);
       return b;
     });
-    const glitch = r.querySelector(".glitch-row");
+    const glitch = fxr.querySelector(".glitch-row");
     this.glitchBtns = GLITCHES.map(label => {
       const key = label.toLowerCase(), b = document.createElement("button");
       b.className = "fn"; b.textContent = label;
@@ -319,7 +319,7 @@ export class PadMode {
     const updAmt = () => { this.fx.amount = +amt.value / 100; f(".o-amt").textContent = `${amt.value}%`; };
     amt.addEventListener("input", updAmt);
     updAmt();
-    r.querySelector(".fx-rand").addEventListener("click", () => {
+    fxr.querySelector(".fx-rand").addEventListener("click", () => {
       this.fx.color = Math.random() < 0.3 ? 0 : 1 + ((Math.random() * (COLORS.length - 1)) | 0);
       for (const [key] of this.glitchBtns) this.fx[key] = Math.random() < (key === "strobe" || key === "mirror" ? 0.15 : 0.35);
       amt.value = 25 + ((Math.random() * 70) | 0);
@@ -327,7 +327,7 @@ export class PadMode {
       this.syncFx();
       this.o.onHit?.();
     });
-    r.querySelector(".fx-clear").addEventListener("click", () => {
+    fxr.querySelector(".fx-clear").addEventListener("click", () => {
       this.fx.color = 0;
       for (const [key] of this.glitchBtns) this.fx[key] = false;
       this.syncFx();

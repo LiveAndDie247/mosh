@@ -12,103 +12,83 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<!-- Behind and around the device: the datamosh field, then (after a mosh) the moshed video -->
+<!-- Behind everything, dim: the datamosh field, then (after a mosh) the moshed video -->
 <canvas id="bg" aria-hidden="true"></canvas>
 <canvas id="bgmosh" aria-hidden="true" hidden></canvas>
 
-<!-- THE DEVICE: one 1600x900 landscape machine, scaled to fit (layout.js). The page never scrolls. -->
-<div id="device">
-  <h1 class="sr-only">MOSH</h1>
-
-  <!-- LEFT: clips on top, the mosh controls under them -->
-  <section class="panel" id="p-clips">
-    <h2 class="ph"><span>01</span> CLIPS</h2>
-    <div class="pick">
-      <div class="slot">
-        <div class="file" id="cardA" role="button" tabindex="0" aria-label="Clip A: pick from the gallery">
-          <div class="thumb" id="thumbA"></div>
-          <span class="tag">A</span>
-          <span class="what">THE PICTURE</span>
-          <span class="name" id="nameA">empty</span>
-        </div>
-        <div class="slot-btns">
-          <button data-act="gallery" data-slot="A">GALLERY</button>
-          <button data-act="dice" data-slot="A" aria-label="Random GIF for A">🎲</button>
-          <button data-act="gif" data-slot="A">GIFCITIES</button>
-        </div>
-        <input type="file" id="fileA" accept="video/*,image/gif" hidden>
-      </div>
-      <div class="slot">
-        <div class="file" id="cardB" role="button" tabindex="0" aria-label="Clip B: pick from the gallery">
-          <div class="thumb" id="thumbB"></div>
-          <span class="tag">B</span>
-          <span class="what">THE MOTION</span>
-          <span class="name" id="nameB">empty</span>
-        </div>
-        <div class="slot-btns">
-          <button data-act="gallery" data-slot="B">GALLERY</button>
-          <button data-act="dice" data-slot="B" aria-label="Random GIF for B">🎲</button>
-          <button data-act="gif" data-slot="B">GIFCITIES</button>
-        </div>
-        <input type="file" id="fileB" accept="video/*,image/gif" hidden>
-      </div>
-    </div>
-    <button id="randBoth" class="rand">🎲 RANDOM BOTH</button>
-    <div class="chks">
-      <label class="chk"><input type="checkbox" id="randSettings" checked> random settings</label>
-      <label class="chk"><input type="checkbox" id="autoMosh"> auto-MOSH</label>
-    </div>
-    <p class="warn" id="warn" hidden></p>
-  </section>
-
-  <section class="panel" id="p-mosh">
-    <h2 class="ph"><span>02</span> MOSH</h2>
-    <div class="controls">
-      <div class="ctl">
-        <div class="row"><label for="keepA">KEEP OF A</label><output id="keepAOut">2.0 s</output></div>
-        <input type="range" id="keepA" min="0.3" max="20" step="0.1" value="2">
-      </div>
-    </div>
-    <button id="mosh" class="big" disabled>MOSH</button>
-    <div class="progress" aria-live="polite">
-      <div class="bar" id="bar"></div>
-      <span id="status">PICK TWO CLIPS</span>
-    </div>
-    <video id="out" controls playsinline loop hidden></video>
-    <button id="save" class="save" hidden>SAVE / SHARE</button>
-  </section>
-
-  <!-- CENTER: the screen and its controls; RIGHT: the pads (both built by pads.js) -->
-  <section class="panel" id="p-play" aria-label="Player"></section>
-  <section class="panel" id="p-pads" aria-label="Live pads"></section>
-
-  <!-- BOTTOM: a thin status bar -->
-  <footer id="statusbar">
+<main>
+  <header>
+    <h1 class="sr-only">MOSH</h1>
     <canvas id="logo" aria-hidden="true"></canvas>
-    <span class="sb-sub">I-FRAME REMOVAL // REAL DATAMOSH</span>
-    <button id="daisyBtn" class="sb-btn sb-daisy">✿ DAISY CHAIN</button>
-    <button id="logline" class="sb-log" aria-label="Show the log">LOG ▸</button>
-    <button id="portraitMode" class="sb-btn"></button>
-    <span class="sb-foot">runs on your phone · nothing uploaded</span>
-  </footer>
+    <p class="sub">I-FRAME REMOVAL // REAL DATAMOSH</p>
+  </header>
 
-  <!-- DAISY CHAIN: a drawer along the bottom (daisy.js) -->
-  <section id="daisy" class="daisy" aria-label="Daisy chain" hidden></section>
+  <section class="pick">
+    <div class="slot">
+      <div class="file" id="cardA" role="button" tabindex="0" aria-label="Clip A: pick from the gallery">
+        <div class="thumb" id="thumbA"></div>
+        <span class="tag">A</span>
+        <span class="what">THE PICTURE<br><small>gets smeared</small></span>
+        <span class="name" id="nameA">tap to pick</span>
+      </div>
+      <div class="slot-btns">
+        <button data-act="gallery" data-slot="A">GALLERY</button>
+        <button data-act="gif" data-slot="A">GIFCITIES</button>
+        <button data-act="dice" data-slot="A" aria-label="Random GIF for A">🎲</button>
+      </div>
+      <input type="file" id="fileA" accept="video/*,image/gif" hidden>
+    </div>
+    <div class="slot">
+      <div class="file" id="cardB" role="button" tabindex="0" aria-label="Clip B: pick from the gallery">
+        <div class="thumb" id="thumbB"></div>
+        <span class="tag">B</span>
+        <span class="what">THE MOTION<br><small>drags it around</small></span>
+        <span class="name" id="nameB">tap to pick</span>
+      </div>
+      <div class="slot-btns">
+        <button data-act="gallery" data-slot="B">GALLERY</button>
+        <button data-act="gif" data-slot="B">GIFCITIES</button>
+        <button data-act="dice" data-slot="B" aria-label="Random GIF for B">🎲</button>
+      </div>
+      <input type="file" id="fileB" accept="video/*,image/gif" hidden>
+    </div>
+  </section>
 
-  <!-- The LOG, as an overlay over the device -->
-  <div id="logbox" hidden>
-    <div class="logbox-head"><b>LOG</b><button id="logclose" aria-label="Close the log">✕</button></div>
-    <pre id="log"></pre>
+  <div class="randrow">
+    <button id="randBoth" class="rand">🎲 RANDOM BOTH</button>
+    <label class="chk"><input type="checkbox" id="randSettings" checked> random settings</label>
+    <label class="chk"><input type="checkbox" id="autoMosh"> auto-MOSH</label>
   </div>
-</div>
 
-<!-- Portrait, unless set to turn the device sideways -->
-<div id="rotate" hidden>
-  <div class="rot-icon">↻</div>
-  <p>Rotate your phone</p>
-  <button id="rotateAnyway">USE IT SIDEWAYS HERE</button>
-</div>
+  <p class="warn" id="warn" hidden></p>
 
+  <section class="controls">
+    <div class="ctl">
+      <div class="row"><label for="keepA">KEEP OF A</label><output id="keepAOut">2.0 s</output></div>
+      <input type="range" id="keepA" min="0.3" max="20" step="0.1" value="2">
+    </div>
+  </section>
+
+  <button id="mosh" class="big" disabled>MOSH</button>
+
+  <div class="progress" aria-live="polite">
+    <div class="bar" id="bar"></div>
+    <span id="status">PICK TWO CLIPS</span>
+  </div>
+
+  <!-- The result: the live screen (pads + FX play here); a plain video only if that can't run -->
+  <section id="p-play" class="result" hidden></section>
+  <video id="out" controls playsinline loop hidden></video>
+  <button id="save" class="save" hidden>SAVE / SHARE</button>
+
+  <!-- Everything else: collapsible, closed by default, remembered -->
+  <details class="sec" data-sec="pads"><summary>PADS</summary><div id="p-pads" class="sec-body"></div></details>
+  <details class="sec" data-sec="fx"><summary>FX</summary><div id="p-fx" class="sec-body"></div></details>
+  <details class="sec" data-sec="chain"><summary>CHAIN</summary><div id="daisy" class="sec-body daisy"></div></details>
+  <details class="sec log" data-sec="log"><summary>LOG</summary><pre id="log"></pre></details>
+
+  <p class="foot">Runs entirely on your phone. Nothing is uploaded.<br>First run downloads the ffmpeg engine (~31 MB).</p>
+</main>
 <div class="scan" aria-hidden="true"></div>
 <div class="noise" aria-hidden="true"></div>
 <script type="module" src="app.js"></script>

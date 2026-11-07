@@ -95,7 +95,7 @@ export class GifSheet {
       <div class="ggrid"></div>
       <button class="gmore" hidden>MORE</button>
       <p class="gcredit">GIFs from <a href="https://gifcities.org" target="_blank" rel="noopener">GifCities</a>, the Internet Archive's GeoCities GIF search.</p>`;
-    (document.getElementById("device") || document.body).append(el);   // covers the device
+    document.body.append(el);
     this.input = el.querySelector(".gsearch");
     this.grid = el.querySelector(".ggrid");
     this.note = el.querySelector(".gnote");
