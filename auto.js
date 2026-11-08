@@ -31,13 +31,17 @@ export function planAuto({ seconds = 60, bpm = 120, style = "SMEAR", pool, seed 
   const beat = 60 / Math.max(40, Math.min(240, bpm));
   const total = Math.round(seconds * FPS);
   const order = [];                                   // shuffled sources, reshuffled when used up
+  let last = -1;                                       // so a source never lands twice in a row
   const next = () => {
     if (!order.length) {
       const idx = pool.map((_, i) => i);
       for (let i = idx.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [idx[i], idx[j]] = [idx[j], idx[i]]; }
+      if (idx.length > 1 && idx[0] === last) [idx[0], idx[1]] = [idx[1], idx[0]];  // not the same as the last one used
       order.push(...idx);
     }
-    return order.shift();
+    const v = order.shift();
+    last = v;
+    return v;
   };
   const segs = [];
   let used = 0;

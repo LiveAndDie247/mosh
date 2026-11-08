@@ -140,11 +140,10 @@ export class Daisy {
   drawSel() {
     const it = this.item(this.sel);
     this.selBox.replaceChildren();
-    if (!it) { this.selBox.innerHTML = `<p class="dz-hint">tap a bank item: preview it, then → A · → B · → PAD · + CHAIN. Hold: delete.</p>`; return; }
+    if (!it) { this.selBox.innerHTML = `<p class="dz-hint">tap a bank item: preview it, then → A · → B · + CHAIN. Hold: delete.</p>`; return; }
     for (const [label, fn] of [
       ["→ A", () => this.o.toSlot("A", it)],
       ["→ B", () => this.o.toSlot("B", it)],
-      ["→ PAD", () => this.o.toPad(it, this.url(it))],
       ["+ CHAIN", () => this.addLink(it.id)],
     ]) {
       const b = document.createElement("button");

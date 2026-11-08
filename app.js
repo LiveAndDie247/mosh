@@ -1,20 +1,18 @@
 // MOSH: the UI and the ffmpeg.wasm plumbing. The datamosh itself is in mosh.js, the ffmpeg
 // command lines in pipeline.js, the sound in wav.js. AUTO MOSH is auto.js + autoui.js (+ beat.js);
-// the background is the site's starfield (stars.js); the live pads pads.js + live.js, GifCities gif.js.
+// the background is the site's starfield (stars.js); GifCities gif.js.
 import { FFmpeg } from "./vendor/ffmpeg/index.js";
 import { fetchFile } from "./vendor/util/index.js";
 import { moshAvi } from "./mosh.js";
 import { encodeArgs, decodeArgs, targetSize, framesOf, MAX_SECONDS, FPS } from "./pipeline.js";
-import { PAD_MAX } from "./clipdecode.js";
 import { bank, makeThumb } from "./bank.js";
 import { Daisy } from "./daisy.js";
 import { buildMoshAudio } from "./wav.js";
 import { initAuto } from "./autoui.js";
 import { sfx, audio } from "./sfx.js";
-import { PadMode } from "./pads.js";
 import { GifSheet, loadIndex, randomGif, randomVibe, prepareGif, gifURL, gifArgs } from "./gif.js";
 
-const BUILD = 18;                         // shown in the LOG, so a screenshot tells which version ran
+const BUILD = 19;                         // shown in the LOG, so a screenshot tells which version ran
 
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
@@ -24,7 +22,7 @@ const $ = id => document.getElementById(id);
 const ui = {
   fileA: $("fileA"), fileB: $("fileB"), cardA: $("cardA"), cardB: $("cardB"), nameA: $("nameA"), nameB: $("nameB"),
   warn: $("warn"), keepA: $("keepA"), keepAOut: $("keepAOut"), mosh: $("mosh"), bar: $("bar"), status: $("status"),
-  out: $("out"), save: $("save"), log: $("log"),
+  out: $("out"), save: $("save"), log: $("log"), spd: $("spd"), spdOut: $("spdOut"), loop: $("loop"),
   thumbA: $("thumbA"), thumbB: $("thumbB"), randBoth: $("randBoth"), randSettings: $("randSettings"), autoMosh: $("autoMosh"),
 };
 
@@ -95,21 +93,7 @@ function copyCanvas(src) {
 // ---------- the background: the site's blinking stars (stars.js); hits throw bursts ----------
 const burst = (k = 1) => window.GateStars?.burst(innerWidth / 2, innerHeight / 2, k);
 const field = { setImage() {}, retire() {}, shock: () => burst(1), ok: true };
-const logo = { hold() {}, burst() {} };
-let swipe = [1, 1];
 ui.mosh.addEventListener("pointerdown", () => { audio(); burst(2); sfx.shock(); });
-
-// LIVE PADS: the finished mosh lands here and plays on loop. Every pad hit is a shockwave + a
-// logo burst; their MOSH keeps the logo melting.
-const pads = new PadMode({ play: $("p-play"), fx: $("p-fx"), pads: $("p-pads") }, {
-  loadFFmpeg: async () => { await loadFFmpeg(); return ffmpeg; },   // ffmpeg.wasm runs one job at a time anyway
-  log,
-  onHit: () => { logo.burst(...swipe); field.shock(innerWidth / 2, innerHeight / 2, 0.7); },
-  onMosh: on => logo.hold(on),
-  onFrame: showBehind,
-});
-
-function showBehind() {}
 
 // ---------- picking clips ----------
 // A clip lands in a slot: from the gallery (a video, or a GIF that gets converted) or from
@@ -347,21 +331,75 @@ async function moshFiles(fileA, fileB, { keepA, width = 480, vf = null, from = 0
   }
 }
 
-// Make something the current result: SAVE saves it, the screen plays it (the pads take up to
-// 8 s; longer things, like a rendered chain, play as a plain video)
+// ---------- the result player ----------
+// base = the clean mosh. The shown video = base with the chosen COLOR + (optional) REVERSE baked
+// in. SPEED and LOOP are live (no re-render); SPEED is baked only when you SAVE.
+let speed = 1;
+const player = $("player");
+
+const COLOR_LOOKS = {
+  RAW:    null,
+  HOT:    "eq=saturation=1.7:contrast=1.15,colorbalance=rm=.22:gm=-.06:bm=-.18",
+  COLD:   "eq=saturation=1.35:contrast=1.08,colorbalance=rm=-.18:gm=.02:bm=.3",
+  ACID:   "hue=h=130:s=2.2,eq=contrast=1.2:saturation=1.3",
+  SICK:   "curves=r='0/.1 .5/.45 1/.9':g='0/0 .5/.6 1/.8':b='0/.2 .5/.3 1/1',eq=saturation=1.4",
+  INVERT: "negate",
+};
+
+function syncColorButtons() {
+  const box = $("colors");
+  for (const b of box.children) b.classList.toggle("on", b.dataset.v === (result?.color || "RAW"));
+}
+
+function setShown(blob, name) {
+  if (result.url) URL.revokeObjectURL(result.url);
+  result.blob = blob; result.name = name; result.url = URL.createObjectURL(blob);
+  ui.out.src = result.url;
+  ui.out.loop = ui.loop.checked;
+  ui.out.playbackRate = speed;
+  ui.out.play().catch(() => {});
+}
+
+// Re-render base → shown with COLOR + REVERSE baked in. Nothing to bake → just show the clean one.
+async function renderShown() {
+  if (!result) return;
+  const b = result.base, vf = [];
+  if (COLOR_LOOKS[result.color]) vf.push(COLOR_LOOKS[result.color]);
+  if (result.reversed) vf.push("reverse");
+  if (!vf.length) { setShown(b.blob, b.name); return; }
+  try {
+    await lock(async () => {
+      await loadFFmpeg();
+      await ffmpeg.writeFile("base.mp4", new Uint8Array(await b.blob.arrayBuffer()));
+      const args = ["-i", "base.mp4", "-vf", vf.join(","),
+        ...(result.reversed ? ["-af", "areverse"] : []),
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", "look.mp4"];
+      await run(args, 0.05, 0.98, result.reversed ? "REVERSING" : "COLORING");
+      const data = await ffmpeg.readFile("look.mp4");
+      await rm("base.mp4"); await rm("look.mp4");
+      setProgress(1, "DONE");
+      setShown(new Blob([data.buffer], { type: "video/mp4" }),
+        b.name.replace(/\.mp4$/, `-${result.color.toLowerCase()}${result.reversed ? "-rev" : ""}.mp4`));
+    });
+  } catch (e) {
+    log(`look: ${e.message || e}`);
+    setProgress(0, `ERROR: ${(e.message || e).toString().slice(0, 50)}`);
+  }
+}
+
+// The finished mosh (from MOSH, AUTO or CHAIN) lands here.
 async function showResult(blob, { w, h, duration, name = `mosh-${Date.now()}.mp4`, label = "" }) {
-  if (result) URL.revokeObjectURL(result.url);
-  result = { blob, url: URL.createObjectURL(blob), name, w, h };
-  ui.out.src = result.url; ui.save.hidden = false;
-  const play = $("p-play");
-  play.hidden = false;
-  if (duration > PAD_MAX + 0.05) { ui.out.hidden = true; pads.previewVideo(blob, label); syncSticky(); return true; }
-  const ok = await pads.loadMoshed(new File([blob], name, { type: "video/mp4" }), w, h);
-  ui.out.hidden = ok;
-  play.hidden = !ok;
-  if (!ok) ui.out.play().catch(() => {});
-  syncSticky();
-  return ok;
+  result = { base: { blob, w, h, duration, name }, blob: null, url: null, name, color: "RAW", reversed: false };
+  speed = 1;
+  player.hidden = false;
+  ui.save.hidden = false;
+  ui.spd.value = 1; ui.spdOut.textContent = "1.00×";
+  ui.loop.checked = true;
+  $("rev").classList.remove("on");
+  syncColorButtons();
+  setShown(blob, name);
+  return true;
 }
 
 // One lock for everything that uses the engine for a while (MOSH, DAISY)
@@ -396,9 +434,16 @@ async function doMosh() {
   await showResult(out.blob, { ...out, label: "mosh" });
 }
 
-// SAVE: if anything is set on the pads (COLOR, GLITCH, PITCH, REV), the saved video is the mosh
-// played once through all of it, recorded live; otherwise the clean render. Recordings that
-// come out as WebM are turned into MP4 with ffmpeg.wasm, so they share and play everywhere.
+// atempo only does 0.5–2x per pass, so chain passes for anything outside that
+function atempoChain(r) {
+  const parts = []; let x = r;
+  while (x < 0.5) { parts.push("atempo=0.5"); x /= 0.5; }
+  while (x > 2)   { parts.push("atempo=2.0"); x /= 2; }
+  parts.push(`atempo=${x.toFixed(4)}`);
+  return parts.join(",");
+}
+
+// SAVE: share the shown clip (COLOR + REVERSE are already baked in); bake SPEED now if it isn't 1x.
 let saving = false;
 async function save() {
   if (!result || saving) return;
@@ -406,27 +451,16 @@ async function save() {
   ui.save.disabled = true;
   try {
     let blob = result.blob, name = result.name;
-    if (pads.hasChanges()) {
-      const take = await pads.exportFx(f => setProgress(f * 0.9, `SAVING WITH FX ${Math.round(f * 100)}%`));
-      ({ blob, name } = take);
-      log(`save: recorded ${name}, ${(blob.size / 1048576).toFixed(1)} MB`);
-      if (!blob.type.includes("mp4")) {
-        try {
-          await loadFFmpeg();
-          setProgress(0.92, "SAVING: MP4");
-          await ffmpeg.writeFile("take.webm", new Uint8Array(await blob.arrayBuffer()));
-          const ret = await ffmpeg.exec(["-i", "take.webm", "-vf", "fps=30", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
-            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", "take.mp4"]);
-          await rm("take.webm");
-          if (ret !== 0) throw new Error("conversion failed");
-          blob = new Blob([(await ffmpeg.readFile("take.mp4")).buffer], { type: "video/mp4" });
-          await rm("take.mp4");
-          name = name.replace(/\.webm$/, ".mp4");
-        } catch (e) {
-          log(`save: kept WebM (${e.message || e})`);
-        }
-      }
-      setProgress(1, "SAVED WITH FX");
+    if (Math.abs(speed - 1) > 0.01) {
+      await loadFFmpeg();
+      setProgress(0.1, "SAVING: SPEED");
+      await ffmpeg.writeFile("spd-in.mp4", new Uint8Array(await blob.arrayBuffer()));
+      const ret = await ffmpeg.exec(["-i", "spd-in.mp4", "-vf", `setpts=${(1 / speed).toFixed(4)}*PTS`, "-af", atempoChain(speed),
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", "spd-out.mp4"]);
+      await rm("spd-in.mp4");
+      if (ret === 0) { blob = new Blob([(await ffmpeg.readFile("spd-out.mp4")).buffer], { type: "video/mp4" }); name = name.replace(/\.mp4$/, `-${speed.toFixed(2)}x.mp4`); }
+      await rm("spd-out.mp4");
+      setProgress(1, "SAVED");
     }
     await share(blob, name);
   } catch (e) {
@@ -482,23 +516,30 @@ updateLabels();
 refresh();
 log(`MOSH build ${BUILD}`);
 
-// The collapsible sections (PADS, FX, CHAIN, LOG): closed by default, each opens on its own,
-// and the phone remembers which were open. With PADS open, the result screen sticks to the top.
+// ---------- player controls: COLOR looks, SPEED, LOOP, REVERSE ----------
+$("colors").replaceChildren(...Object.keys(COLOR_LOOKS).map(k => {
+  const b = document.createElement("button");
+  b.textContent = k; b.dataset.v = k;
+  b.addEventListener("click", () => { if (!result || busy) return; result.color = k; syncColorButtons(); renderShown(); });
+  return b;
+}));
+ui.spd.addEventListener("input", e => { speed = +e.target.value; ui.spdOut.textContent = `${speed.toFixed(2)}×`; ui.out.playbackRate = speed; });
+$("spdReset").addEventListener("click", () => { speed = 1; ui.spd.value = 1; ui.spdOut.textContent = "1.00×"; ui.out.playbackRate = 1; });
+ui.loop.addEventListener("change", e => { ui.out.loop = e.target.checked; if (e.target.checked) ui.out.play().catch(() => {}); });
+$("rev").addEventListener("click", () => { if (!result || busy) return; result.reversed = !result.reversed; $("rev").classList.toggle("on", result.reversed); renderShown(); });
+
+// The collapsible sections (CHAIN, LOG): closed by default, each opens on its own, remembered.
 const SEC_KEY = "mosh.open";
 let openSecs = {};
 try { openSecs = JSON.parse(localStorage.getItem(SEC_KEY) || "{}"); } catch {}
-const padsSec = document.querySelector('details[data-sec="pads"]');
-const syncSticky = () => document.body.classList.toggle("pads-open", padsSec.open && !$("p-play").hidden);
 for (const d of document.querySelectorAll("details.sec")) {
   d.open = !!openSecs[d.dataset.sec];
   d.addEventListener("toggle", () => {
     openSecs[d.dataset.sec] = d.open;
     localStorage.setItem(SEC_KEY, JSON.stringify(openSecs));
-    syncSticky();
     if (d.dataset.sec === "log" && d.open) ui.log.scrollTop = ui.log.scrollHeight;
   });
 }
-syncSticky();
 // Finger movements are plain page pixels now (nothing is scaled or turned)
 const layout = { toLocal: (x, y) => ({ x, y }) };
 
@@ -533,7 +574,6 @@ const daisy = new Daisy($("daisy"), {
   bank, makeThumb, layout, log, setProgress, lock, moshFiles, randomGifFile, tailStill, showResult,
   ffmpeg: async () => { await loadFFmpeg(); return ffmpeg; }, run, rm, audio,
   toSlot: (which, item) => setClip(which, new File([item.blob], `${item.id}.mp4`, { type: "video/mp4" }), null, item.label),
-  toPad: (item, url) => pads.arm(new File([item.blob], `${item.id}.mp4`, { type: "video/mp4" }), item.label, url),
 });
 initAuto($("auto"), {
   loadFFmpeg, ffmpeg: () => ffmpeg, run, rm, setProgress, log, lock, showResult, bank, makeThumb, audio, probe,

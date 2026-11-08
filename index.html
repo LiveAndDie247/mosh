@@ -9,7 +9,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 <main>
@@ -31,10 +31,27 @@
     <span id="status">READY</span>
   </div>
 
-  <!-- 2. The result: plays here, then SAVE -->
-  <section id="p-play" class="result" hidden></section>
-  <video id="out" controls playsinline loop hidden></video>
-  <button id="save" class="save" hidden>SAVE / SHARE</button>
+  <!-- 2. The result: a clean player -->
+  <section id="player" class="player" hidden>
+    <video id="out" class="out" controls playsinline loop></video>
+    <div class="pl-controls">
+      <div class="pl-row">
+        <span class="pl-lab">SPEED</span>
+        <input type="range" id="spd" min="0.25" max="2" step="0.05" value="1" aria-label="Playback speed">
+        <output id="spdOut">1.00×</output>
+        <button id="spdReset" class="pl-mini" title="Back to normal speed">1×</button>
+      </div>
+      <div class="pl-row2">
+        <label class="pl-chk"><input type="checkbox" id="loop" checked> LOOP</label>
+        <button id="rev" class="pl-btn">REVERSE</button>
+      </div>
+      <div class="pl-row">
+        <span class="pl-lab">COLOR</span>
+        <div class="seg colors" id="colors"></div>
+      </div>
+    </div>
+    <button id="save" class="save">SAVE / SHARE</button>
+  </section>
 
   <!-- 3. Everything else: folded away, remembered -->
   <details class="sec" data-sec="manual"><summary>A × B (MANUAL)</summary>
@@ -84,8 +101,6 @@
       <button id="mosh" class="big" disabled>MOSH</button>
     </div>
   </details>
-  <details class="sec" data-sec="pads"><summary>PADS</summary><div id="p-pads" class="sec-body"></div></details>
-  <details class="sec" data-sec="fx"><summary>FX</summary><div id="p-fx" class="sec-body"></div></details>
   <details class="sec" data-sec="chain"><summary>BANK + CHAIN</summary><div id="daisy" class="sec-body daisy"></div></details>
   <details class="sec log" data-sec="log"><summary>LOG</summary><pre id="log"></pre></details>
 
@@ -93,6 +108,6 @@
   <p class="foot">First run downloads the ffmpeg engine (~31 MB), then it's cached.<br>GIFs from <a href="https://gifcities.org" target="_blank" rel="noopener">GifCities</a> (Internet Archive).<br><a class="home" href="https://liveanddie.xyz/">« liveanddie.xyz</a></p>
 </main>
 <script src="stars.js" defer></script>
-<script type="module" src="app.js?v=4"></script>
+<script type="module" src="app.js?v=6"></script>
 </body>
 </html>

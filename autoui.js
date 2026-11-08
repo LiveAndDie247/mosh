@@ -102,23 +102,29 @@ export function initAuto(root, d) {
   q(".a-offset").addEventListener("input", e => { s.offset = +e.target.value; sync(); });
 
   // GO
+  // Fetch n distinct GIFs, several at once so a bigger pool doesn't mean a long wait.
   async function fetchGifs(n) {
+    if (!n) return [];
     const idx = await loadIndex(), out = [], seen = new Set();
-    for (let tries = 0; out.length < n && tries < n * 4; tries++) {
-      const g = randomGif(null, s.vibe === "mix" ? "" : s.vibe);
-      if (!g || seen.has(g.id)) continue;
-      seen.add(g.id);
-      d.setProgress(0.04 + 0.08 * out.length / n, `AUTO: GIF ${out.length + 1}/${n}`);
-      try {
-        const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 12000);
-        const res = await fetch(gifURL(g), { signal: ctl.signal });
-        clearTimeout(t);
-        if (!res.ok) continue;
-        out.push({ kind: "gif", data: new Uint8Array(await res.arrayBuffer()), label: g.t[0] });
-      } catch {}
-    }
-    if (!out.length && n) throw new Error(`couldn't reach GifCities (${idx.count} GIFs in the index)`);
-    return out;
+    let done = 0;
+    const grab = async () => {
+      while (out.length < n) {
+        const g = randomGif(null, s.vibe === "mix" ? "" : s.vibe);
+        if (!g || seen.has(g.id)) { if (seen.size >= idx.count) return; continue; }
+        seen.add(g.id);
+        try {
+          const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 12000);
+          const res = await fetch(gifURL(g), { signal: ctl.signal });
+          clearTimeout(t);
+          if (!res.ok) continue;
+          const data = new Uint8Array(await res.arrayBuffer());
+          if (out.length < n) { out.push({ kind: "gif", data, label: g.t[0] }); d.setProgress(0.04 + 0.08 * (++done) / n, `AUTO: GIF ${done}/${n}`); }
+        } catch {}
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(5, n) }, grab));
+    if (!out.length) throw new Error(`couldn't reach GifCities (${idx.count} GIFs in the index)`);
+    return out.slice(0, n);
   }
 
   async function go() {
@@ -128,7 +134,9 @@ export function initAuto(root, d) {
       const out = await d.lock(async () => {
         await d.loadFFmpeg();
         d.setProgress(0.03, "AUTO: GATHERING");
-        const nGifs = s.vibe === "none" ? 0 : own.length ? Math.max(3, Math.round(s.gifs / 2)) : s.gifs;
+        // enough GIFs that a longer clip doesn't recycle the same few: roughly one per cut, capped
+        const want = Math.max(8, Math.min(26, Math.round(s.seconds / 2.2)));
+        const nGifs = s.vibe === "none" ? 0 : own.length ? Math.max(4, Math.round(want / 2)) : want;
         if (!nGifs && !own.length) throw new Error("pick a GIF vibe or add your own clips");
         const sources = [...await fetchGifs(nGifs)];
         for (const c of own) sources.push({ kind: c.kind, ext: c.ext, duration: c.duration, data: new Uint8Array(await c.file.arrayBuffer()), label: c.file.name });
@@ -144,7 +152,7 @@ export function initAuto(root, d) {
         d.refreshBank();
       } catch (e) { d.log(`bank: ${e.message || e}`); }
       await d.showResult(out.blob, { w: out.w, h: out.h, duration: out.duration, name: `mosh-auto-${Date.now()}.mp4`, label: `auto ${s.style}` });
-      document.querySelector("#p-play")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.querySelector("#player")?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) {
       console.error(e);
       d.log(`AUTO: ${e.message || e}`);

@@ -321,4 +321,23 @@ button { font-size: 13px; }
 .a-surprise { font: 700 17px/1 var(--sf); border: 3px double var(--b); color: var(--b); letter-spacing: .03em; padding: 10px 4px; background: #000; }
 .a-surprise:hover:not(:disabled), .a-surprise:active:not(:disabled) { background: var(--b); color: #000; }
 
+/* ---------- the result player (replaces the pads): video + SPEED / LOOP / REVERSE / COLOR ---------- */
+.player { display: flex; flex-direction: column; gap: 7px; background: #000; border: 4px ridge #8888aa; padding: 6px; }
+.player .out { width: 100%; max-height: 62vh; object-fit: contain; background: #000; border: 2px inset #8888aa; display: block; }
+.pl-controls { display: flex; flex-direction: column; gap: 7px; }
+.pl-row { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 6px; }
+.pl-lab { font: 700 12px var(--tt); color: var(--r); letter-spacing: .06em; }
+.pl-row #spdOut { font: 14px var(--tt); min-width: 58px; text-align: center; }
+.pl-row input[type=range] { height: 44px; }
+.pl-mini { min-width: 46px; font: 700 13px var(--tt); border: 2px outset #8888aa; color: #c8c8ff; }
+.pl-row .colors { grid-column: 2 / -1; }
+.pl-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-items: stretch; }
+.pl-chk { display: flex; align-items: center; justify-content: center; gap: 6px; font: 700 14px var(--sf); color: var(--r); min-height: 46px; border: 2px outset #8888aa; }
+.pl-chk input { width: 18px; height: 18px; accent-color: var(--r); }
+.pl-btn { font: 700 15px var(--sf); border: 2px outset #8888aa; color: #c8c8ff; min-height: 46px; }
+.pl-btn.on { background: var(--b); border: 2px inset var(--b); color: #000; }
+.player .colors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; }
+.player .colors button { font: 700 13px var(--tt); border: 2px outset #8888aa; color: #c8c8ff; min-height: 40px; }
+.player .colors button.on { background: var(--r); border: 2px inset var(--r); color: #000; }
+
 @media (prefers-reduced-motion: reduce) { html { background-image: url(icons/stars.png); } .a-go { animation: none; } }
