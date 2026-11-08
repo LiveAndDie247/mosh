@@ -168,7 +168,12 @@ export function moshChain(input, joins = [], { soupFrames = 30 } = {}) {
       pos = Math.min(cands.length - 1, pos + Math.max(0, sp.skip | 0));
       if (pos < 0 || pos >= cands.length) break;
       const win = cands.slice(pos, pos + Math.max(1, sp.window ?? 12));
-      const ranked = win.slice().sort((a, b) => vids[a].size - vids[b].size);
+      let ranked = win.slice().sort((a, b) => vids[a].size - vids[b].size);
+      // a frame far bigger than its neighbours is the picture repainting (a film edit, something
+      // new entering): repeat it and it just sits there clean. Never pick one of those.
+      const med = vids[ranked[ranked.length >> 1]].size;
+      const calm = ranked.filter(k => vids[k].size <= med * 3);
+      if (calm.length) ranked = calm;
       const idx = ranked[Math.min(ranked.length - 1, Math.floor(ranked.length * Math.min(1, Math.max(0, sp.pct ?? 0.7))))];
       const count = Math.max(0, sp.count | 0);
       if (count) blooms.set(idx, (blooms.get(idx) || 0) + count);

@@ -18,7 +18,7 @@ export const footageURL = c => `clips/footage/${c.f}`;
 // that much (manifest `m`, mean frame difference), unless that leaves fewer than 3.
 export function shuffledFootage(vibe = "", minMotion = 0) {
   let a = (man?.clips || []).filter(c => !vibe || c.v === vibe).slice();
-  if (minMotion > 0) { const mv = a.filter(c => (c.m ?? 99) >= minMotion); if (mv.length >= 3) a = mv; }
+  if (minMotion > 0) { const mv = a.filter(c => (c.m ?? 99) >= minMotion && !c.cuts); if (mv.length >= 3) a = mv; }   // melt styles: moving, and no film edit inside (an edit repaints the picture clean)
   for (let i = a.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [a[i], a[j]] = [a[j], a[i]]; }
   return a;
 }

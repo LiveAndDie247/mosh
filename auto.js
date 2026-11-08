@@ -80,20 +80,26 @@ export function planAuto({ seconds = 60, bpm = 120, style = "SMEAR", pool, seed 
     // (a mid-size motion frame), a hold (a near-still frame), then a heavy swirl (a big one).
     if (st.phrase && isVideo && frames >= 150) {
       const clipF = Math.round((s.duration || 5) * FPS);
-      let b1 = Math.round(30 + rnd() * 20), b2 = Math.round(20 + rnd() * 20);
-      const fixed = 4 + 3 + 8;                                 // lead-in, the 3 repeated frames, a tail
-      const room = clipF - 6 - fixed;
-      if (b1 + b2 > room) { const k = Math.max(0.2, room / (b1 + b2)); b1 = Math.round(b1 * k); b2 = Math.round(b2 * k); }
-      const R = fixed + b1 + b2;                               // real frames encoded from the clip
-      const B = frames - R;                                    // frames of repeats (the smear)
-      const g = Math.round(B * 0.38), h = Math.round(B * 0.22), v = B - g - h;
-      const blooms = [
-        { skip: 4,  pct: 0.45, count: g, window: 10 },         // slow sink
-        { skip: b1, pct: 0.08, count: h, window: 8 },          // burst of real motion, then a hold
-        { skip: b2, pct: 0.92, count: v, window: 10 },         // burst, then the heavy swirl
-      ];
+      // Many SHORT holds, each from a different moment of the clip, so the motion keeps changing:
+      // camera moves make the world stream past the people, people's moves make them trail. One
+      // long hold of one moment just loops the same push.
+      const nHold = Math.max(4, Math.min(8, Math.round(frames / 90)));
+      const lead = 2, gaps = [];
+      const room = Math.max(nHold * 3, clipF - 8 - lead - nHold);  // real frames we can spend between holds
+      for (let k = 0; k < nHold - 1; k++) gaps.push(Math.max(3, Math.round((room / (nHold - 1)) * (0.6 + 0.8 * rnd()))));
+      let R = lead + nHold + gaps.reduce((a, b) => a + b, 0) + 6;
+      while (R > clipF - 4 && gaps.some(g => g > 3)) { const i = gaps.indexOf(Math.max(...gaps)); gaps[i]--; R--; }
+      const B = Math.max(nHold, frames - R);
+      // hold lengths: uneven (some brief, some long), adding up to B
+      const wts = Array.from({ length: nHold }, () => 0.5 + rnd());
+      const tot = wts.reduce((a, b) => a + b, 0);
+      const counts = wts.map(w => Math.max(1, Math.round(B * w / tot)));
+      counts[counts.length - 1] += B - counts.reduce((a, b) => a + b, 0);
+      // which kind of frame each hold repeats: mostly mid motion, some gentle, some heavy
+      const pcts = [0.35, 0.6, 0.15, 0.75, 0.5, 0.8, 0.3, 0.65];
+      const blooms = counts.map((c, k) => ({ skip: k === 0 ? lead : gaps[k - 1], pct: pcts[k % pcts.length], count: c, window: 6 }));
       const ss = s.duration > R / FPS + 0.3 ? +(rnd() * (s.duration - R / FPS - 0.2)).toFixed(2) : 0;
-      const join = segs.length ? (rnd() < 0.85 ? "bloom" : "cut") : "cut";
+      const join = segs.length ? "bloom" : "cut";        // never a clean reset mid-melt: the reference has none
       segs.push({ src, frames: R + (join === "cut" ? 0 : 1), ss, join, count: B, blooms, skip: 0, drift: null, still: false });
       used += frames;
       continue;

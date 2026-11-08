@@ -108,7 +108,8 @@ export function driftVf(kind, frames, w, h) {
 }
 
 // Output sizes for AUTO MOSH (all 480 wide, like everything else)
-export const RATIOS = { "1:1": { w: 480, h: 480 }, "9:16": { w: 480, h: 854 }, "16:9": { w: 480, h: 270 } };
+// 720 wide: the codec works in 16px blocks, so a bigger frame makes the blocks a third smaller
+export const RATIOS = { "1:1": { w: 720, h: 720 }, "9:16": { w: 720, h: 1280 }, "16:9": { w: 720, h: 406 } };
 
 // Whole frames of Clip A to keep, so the forced keyframe lands exactly on B's first frame
 export const framesOf = sec => Math.max(1, Math.round(sec * FPS));
