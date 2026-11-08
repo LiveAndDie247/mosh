@@ -13,6 +13,7 @@ export function initAuto(root, d) {
   try { s = { ...s, ...JSON.parse(localStorage.getItem(KEY) || "{}") }; } catch {}
   const own = [];                    // [{ file, kind, duration, ext }]
   let song = null;                   // { file, duration }
+  let vibeVals = [];                 // the GifCities vibes, for SURPRISE
   const save = () => { const { bpm, offset, ...keep } = s; localStorage.setItem(KEY, JSON.stringify(keep)); };
 
   root.innerHTML = `
@@ -24,8 +25,11 @@ export function initAuto(root, d) {
     <div class="a-row"><span class="a-lab">SONG</span><div class="a-own"><button class="a-song">+ ADD SONG</button><span class="a-songname">none · cuts land on the beat</span></div></div>
     <div class="a-row a-bpmrow"><span class="a-lab">BPM</span><div class="a-bpm"><output class="a-bpmout"></output><button class="a-tap">TAP</button><button class="a-bm">−</button><button class="a-bp">+</button></div></div>
     <div class="a-row a-offrow" hidden><span class="a-lab">START</span><div class="a-off"><output class="a-offout"></output><input type="range" class="a-offset" min="0" max="60" step="0.5" value="0"></div></div>
-    <button class="big a-go">AUTO MOSH</button>
-    <p class="a-note">Every tap is a new take. Takes land in the BANK.</p>
+    <div class="a-gorow">
+      <button class="a-surprise">🎲 SURPRISE</button>
+      <button class="big a-go">AUTO MOSH</button>
+    </div>
+    <p class="a-note">SURPRISE picks a vibe + style and goes — one tap, no decisions. Every tap is a new take; they land in the BANK.</p>
     <input type="file" class="a-files" accept="video/*,image/gif" multiple hidden>
     <input type="file" class="a-songfile" accept="audio/*,video/*" hidden>`;
   const q = c => root.querySelector(c);
@@ -53,6 +57,7 @@ export function initAuto(root, d) {
   seg(q(".a-ratio"), [["1:1 POST", "1:1"], ["9:16 REEL", "9:16"], ["16:9 YT", "16:9"]], () => s.ratio, v => (s.ratio = v));
   seg(q(".a-style"), Object.keys(STYLES).map(k => [k, k]), () => s.style, v => (s.style = v));
   loadIndex().then(idx => {
+    vibeVals = idx.vibes.slice();
     seg(q(".a-vibes"), [["MIX", "mix"], ["NONE", "none"], ...idx.vibes.map(v => [v.toUpperCase(), v])], () => s.vibe, v => (s.vibe = v));
     sync();
   }).catch(e => d.log(`auto: no GifCities index (${e.message || e})`));
@@ -149,5 +154,15 @@ export function initAuto(root, d) {
     }
   }
   q(".a-go").addEventListener("click", go);
+  q(".a-surprise").addEventListener("click", () => {
+    const styles = Object.keys(STYLES);
+    s.style = styles[Math.floor(Math.random() * styles.length)];
+    // if they've added their own clips, keep using them + a random vibe; otherwise a random GifCities vibe
+    const pool = vibeVals.length ? vibeVals.slice() : ["mix"];
+    if (own.length) pool.push("mix");
+    s.vibe = pool[Math.floor(Math.random() * pool.length)] || "mix";
+    sync();
+    go();
+  });
   sync();
 }

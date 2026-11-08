@@ -315,4 +315,10 @@ button { font-size: 13px; }
 .controls { border: 3px double #8888aa; }
 .foot { font-size: 13px; color: #b8b8d8; }
 .foot a { color: #9a9aff; }
+/* SURPRISE: one-tap take, sat next to AUTO MOSH; the site's blue to AUTO MOSH's red */
+.a-gorow { display: grid; grid-template-columns: 1fr 1.7fr; gap: 6px; align-items: stretch; margin-top: 4px; }
+.a-gorow .a-go { margin-top: 0; }
+.a-surprise { font: 700 17px/1 var(--sf); border: 3px double var(--b); color: var(--b); letter-spacing: .03em; padding: 10px 4px; background: #000; }
+.a-surprise:hover:not(:disabled), .a-surprise:active:not(:disabled) { background: var(--b); color: #000; }
+
 @media (prefers-reduced-motion: reduce) { html { background-image: url(icons/stars.png); } .a-go { animation: none; } }
