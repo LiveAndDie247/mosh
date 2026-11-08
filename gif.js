@@ -40,14 +40,25 @@ export function searchGifs(q, vibe = "") {
   return shuffle(hits);
 }
 
-// A random GIF, from one vibe if given; `except` is never returned. `minFrames`: prefer GIFs
-// with at least that many frames (ones that actually move), falling back to any if none qualify.
-export function randomGif(except = null, vibe = "", minFrames = 0) {
+// The GIFs to draw from: one vibe ("" = all); with `minFrames`, prefer the ones with at least
+// that many frames (ones that actually move), unless that leaves fewer than 3.
+export function gifPool(vibe = "", minFrames = 0) {
   let all = (index?.gifs || []).filter(g => !vibe || g.v === vibe);
   if (minFrames > 0) { const moving = all.filter(g => (g.f || 0) >= minFrames); if (moving.length >= 3) all = moving; }
+  return all;
+}
+
+// A random GIF, from one vibe if given; `except` is never returned
+export function randomGif(except = null, vibe = "", minFrames = 0) {
+  const all = gifPool(vibe, minFrames);
   if (!all.length) return null;
   for (let i = 0; i < 20; i++) { const g = all[(Math.random() * all.length) | 0]; if (g !== except) return g; }
   return all[0];
+}
+
+// n distinct random GIFs from a pool: a shuffled copy, so there is never a loop hunting for new ones
+export function shuffledGifs(vibe = "", minFrames = 0) {
+  return shuffle(gifPool(vibe, minFrames).slice());
 }
 
 export function randomVibe() {

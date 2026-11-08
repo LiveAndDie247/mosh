@@ -2,7 +2,7 @@
 // a song (BPM detected, TAP to fix), one big button. Re-tap for a new take of the same setup.
 import { planAuto, runAuto, STYLES } from "./auto.js";
 import { detectBpm, tapper } from "./beat.js";
-import { loadIndex, randomGif, gifURL } from "./gif.js";
+import { loadIndex, shuffledGifs, gifURL } from "./gif.js";
 
 const LENGTHS = [15, 30, 60];
 const KEY = "mosh.auto";
@@ -11,6 +11,7 @@ export function initAuto(root, d) {
   // d: { loadFFmpeg, ffmpeg(), run, rm, setProgress, log, lock, showResult, bank, makeThumb, refreshBank, audio, probe }
   let s = { vibe: "mix", seconds: 30, ratio: "1:1", style: "SMEAR", gifs: 8, bpm: 120, offset: 0 };
   try { s = { ...s, ...JSON.parse(localStorage.getItem(KEY) || "{}") }; } catch {}
+  if (!STYLES[s.style]) s.style = "VORTEX";            // a style from an older build that's gone now
   const own = [];                    // [{ file, kind, duration, ext }]
   let song = null;                   // { file, duration }
   let vibeVals = [];                 // the GifCities vibes, for SURPRISE
@@ -102,17 +103,18 @@ export function initAuto(root, d) {
   q(".a-offset").addEventListener("input", e => { s.offset = +e.target.value; sync(); });
 
   // GO
-  // Fetch n distinct GIFs, several at once so a bigger pool doesn't mean a long wait.
+  // Fetch up to n distinct GIFs, several at once so a bigger pool doesn't mean a long wait.
+  // Walks a shuffled copy of the pool, so a small vibe just yields fewer GIFs: it can't spin.
   async function fetchGifs(n) {
     if (!n) return [];
-    const idx = await loadIndex(), out = [], seen = new Set();
-    let done = 0;
+    const idx = await loadIndex(), out = [];
     const minFrames = STYLES[s.style]?.moving || 0;     // melt styles want GIFs that actually move
+    const pool = shuffledGifs(s.vibe === "mix" ? "" : s.vibe, minFrames);
+    if (!pool.length) throw new Error(`no GIFs in that vibe (${idx.count} in the index)`);
+    let next = 0, done = 0;
     const grab = async () => {
-      while (out.length < n) {
-        const g = randomGif(null, s.vibe === "mix" ? "" : s.vibe, minFrames);
-        if (!g || seen.has(g.id)) { if (seen.size >= idx.count) return; continue; }
-        seen.add(g.id);
+      while (out.length < n && next < pool.length) {
+        const g = pool[next++];
         try {
           const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 12000);
           const res = await fetch(gifURL(g), { signal: ctl.signal });

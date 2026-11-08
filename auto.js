@@ -104,8 +104,17 @@ export async function runAuto(o, { sources, segs, ratio = "1:1", music = null, k
     o.setProgress(0.12, "AUTO: loading clips");
     for (const [i, s] of sources.entries()) await ff.writeFile(names[i], s.data);
     const frames = segs.map(s => s.frames);
-    const enc = autoEncodeArgs({ segs: segs.map(s => ({ name: names[s.src], gif: sources[s.src].kind === "gif", ss: s.ss, drift: s.drift, still: s.still })), frames, w, h });
-    await o.run(enc, 0.14, 0.62, "AUTO: ENCODING");
+    const encSegs = segs.map(s => ({ name: names[s.src], gif: sources[s.src].kind === "gif", ss: s.ss, drift: s.drift, still: s.still }));
+    try {
+      await o.run(autoEncodeArgs({ segs: encSegs, frames, w, h }), 0.14, 0.62, "AUTO: ENCODING");
+    } catch (e) {
+      // the drift (zoompan) is the only exotic thing in the encode: if it fails on this engine or
+      // runs out of memory, encode the plain way instead of dying
+      if (!encSegs.some(s => s.drift)) throw e;
+      o.log(`auto: drift encode failed (${e.message || e}); retrying without drift`);
+      await o.rm("chain.avi");
+      await o.run(autoEncodeArgs({ segs: encSegs.map(s => ({ ...s, drift: null, still: false })), frames, w, h }), 0.14, 0.62, "AUTO: ENCODING (plain)");
+    }
     for (const n of names) await o.rm(n);
     if (o.stopped?.()) throw new Error("stopped");
     o.setProgress(0.63, "AUTO: MOSHING");

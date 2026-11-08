@@ -82,8 +82,10 @@ export const PUSHES = ["push", "pushL", "pushR", "pushU", "pushD"];
 export function driftVf(kind, frames, w, h) {
   const N = Math.max(1, frames);
   // resample to FPS first: zoompan (d=1) emits one frame per input frame, so a 12 fps GIF would come up short.
-  // Smooth (bicubic) upscale here, not the crisp nearest-neighbour: the vortex should flow, not ring.
-  const big = `fps=${FPS},scale=${2 * w}:${2 * h}:force_original_aspect_ratio=increase:flags=bicubic,crop=${2 * w}:${2 * h},setsar=1`;
+  // Smooth (bicubic) scale, not the crisp nearest-neighbour: the vortex should flow, not ring.
+  // At the OUTPUT size, not 2x: ffmpeg buffers frames from every segment at once, and 2x frames
+  // are 4x the memory, which is more than a phone has. The zoom goes a little soft; a mosh doesn't care.
+  const big = `fps=${FPS},scale=${w}:${h}:force_original_aspect_ratio=increase:flags=bicubic,crop=${w}:${h},setsar=1`;
   const rot = r => `rotate='t*${r}':c=black:ow=iw:oh=ih`;
   const zp = (z, x = "iw/2-(iw/zoom/2)", y = "ih/2-(ih/zoom/2)") => `zoompan=z='${z}':d=1:x='${x}':y='${y}':s=${w}x${h}:fps=${FPS}`;
   // off-centre push: the crop window drifts toward a corner as it zooms (stays inside the 2x frame)
