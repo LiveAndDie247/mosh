@@ -38,16 +38,20 @@ export const chainStarts = frames => frames.reduce((a, n, i) => (a.push(i ? a[i 
 // if it loops, its last frame held if it doesn't, upscaled with nearest-neighbour so the pixels stay
 // crisp) or a window of a video (`ss` seconds in), cut to exactly `frames[i]` frames. Same output
 // as chainEncodeArgs: one MPEG-4 AVI with a forced keyframe exactly where each segment starts.
-//   segs: [{ name, gif: bool, ss: seconds }]
+//   segs: [{ name, gif: bool, ss: seconds, drift: null | a DRIFTS kind }]
+// A segment with `drift` plays its GIF once, holds the picture, and zooms / rotates / pans it the
+// whole way (driftVf), so the motion that drags the previous picture is strong and coherent.
 export function autoEncodeArgs({ segs, frames, w, h, out = "chain.avi" }) {
   const inputs = segs.flatMap((s, i) => {
     const t = (frames[i] / FPS + 0.6).toFixed(3);              // read a little past the cut
-    return [...(s.gif ? ["-ignore_loop", "0"] : []), ...(s.ss ? ["-ss", s.ss.toFixed(3)] : []), "-t", t, "-i", s.name];
+    const loop = s.gif && !s.drift ? ["-ignore_loop", "0"] : [];   // drifting: play once, then hold
+    return [...loop, ...(s.ss ? ["-ss", s.ss.toFixed(3)] : []), "-t", t, "-i", s.name];
   });
   const fit = `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1,fps=${FPS},format=yuv420p`;
+  // `still`: freeze the source to its first picture before drifting (no GIF frames rebuilding it)
   const parts = segs.map((s, i) =>
-    `[${i}:v]tpad=stop_mode=clone:stop_duration=${(frames[i] / FPS + 1).toFixed(3)},` +
-    `${s.gif ? "scale='min(iw*4,960)':-2:flags=neighbor," : ""}${fit},trim=end_frame=${frames[i]},setpts=PTS-STARTPTS[v${i}]`);
+    `[${i}:v]${s.still ? "trim=end_frame=1,setpts=PTS-STARTPTS," : ""}tpad=stop_mode=clone:stop_duration=${(frames[i] / FPS + 1).toFixed(3)},` +
+    `${s.gif ? "scale='min(iw*4,960)':-2:flags=neighbor," : ""}${s.drift ? driftVf(s.drift, frames[i], w, h) : fit},trim=end_frame=${frames[i]},setpts=PTS-STARTPTS[v${i}]`);
   const cat = `${segs.map((_, i) => `[v${i}]`).join("")}concat=n=${segs.length}:v=1:a=0[v]`;
   const starts = chainStarts(frames).slice(1);
   return [
@@ -58,6 +62,30 @@ export function autoEncodeArgs({ segs, frames, w, h, out = "chain.avi" }) {
     ...(starts.length ? ["-force_key_frames", starts.map(f => (f / FPS).toFixed(6)).join(",")] : []),
     "-f", "avi", out,
   ];
+}
+
+// DRIFT: synthetic motion for the VORTEX melt. A datamosh only drags a picture as hard as the
+// motion in the frames after the cut, and most GIFs barely move, so they just swap pictures with
+// speckles. Instead, the GIF supplies the picture and we supply the motion: the picture is scaled
+// up and slowly zoomed / rotated / panned, so its P-frames are pure coherent motion vectors with
+// almost no residual. Deleting the keyframe then drags the previous picture into that motion: the
+// spiral vortex. Returns a filter chain that ends at w×h, FPS, yuv420p.
+export const DRIFTS = ["spiral", "spiralr", "zoomin", "zoomout", "spin", "pan"];
+export function driftVf(kind, frames, w, h) {
+  const N = Math.max(1, frames);
+  // resample to FPS first: zoompan (d=1) emits one frame per input frame, so a 12 fps GIF would come up short
+  const big = `fps=${FPS},scale=${2 * w}:${2 * h}:force_original_aspect_ratio=increase,crop=${2 * w}:${2 * h},setsar=1`;
+  const rot = r => `rotate='t*${r}':c=black:ow=iw:oh=ih`;
+  const zp = (z, x = "iw/2-(iw/zoom/2)", y = "ih/2-(ih/zoom/2)") => `zoompan=z='${z}':d=1:x='${x}':y='${y}':s=${w}x${h}:fps=${FPS}`;
+  const chain = {
+    spiral:  `${big},${rot(0.35)},${zp(`1+0.7*on/${N}`)}`,
+    spiralr: `${big},${rot(-0.35)},${zp(`1+0.7*on/${N}`)}`,
+    zoomin:  `${big},${zp(`1+0.9*on/${N}`)}`,
+    zoomout: `${big},${zp(`1.9-0.9*on/${N}`)}`,
+    spin:    `${big},${rot(0.6)},${zp("1.3")}`,
+    pan:     `${big},${zp("1.4", `(iw-iw/zoom)*on/${N}`)}`,
+  }[kind] || `${big},${rot(0.35)},${zp(`1+0.7*on/${N}`)}`;
+  return `${chain},format=yuv420p`;
 }
 
 // Output sizes for AUTO MOSH (all 480 wide, like everything else)

@@ -3,7 +3,7 @@
 //   plan → write the sources → autoEncodeArgs (every segment to one MPEG-4 AVI, a keyframe at
 //   each cut) → moshChain (delete / bloom / soup / keep each keyframe) → decodeArgs (+ the song).
 // Pure planning (planAuto) is separate from running (runAuto), so it can be tested under Node.
-import { autoEncodeArgs, chainStarts, decodeArgs, keepColorVf, RATIOS, FPS } from "./pipeline.js";
+import { autoEncodeArgs, chainStarts, decodeArgs, keepColorVf, RATIOS, FPS, DRIFTS } from "./pipeline.js";
 import { moshChain } from "./mosh.js";
 
 // Styles: how cuts are joined, how long segments are (in beats), how hard blooms are.
@@ -12,10 +12,16 @@ import { moshChain } from "./mosh.js";
 // The mosh only happens AT a join (keyframe deleted → the next motion drags the held picture),
 // so SHORT segments = constant smear, LONG segments = the clip plays clean between blips. For a
 // continuous melt: short holds, never a "cut" (which resets to a clean picture), steady bloom.
+// `drift`: the GIF only supplies the picture; the engine supplies the motion (pipeline.js DRIFTS),
+// so every join drags the previous picture into a zoom / spin / pan. That is the reference vortex.
+// The smooth ones. No pan (it tears) and no zoomout: zooming OUT reveals new pixels at the edges,
+// which get painted in clean and rebuild the picture. Zoom in / spin / spiral only ever re-use pixels.
+const SWIRL = ["spiral", "spiralr", "zoomin", "spin"];
 export const STYLES = {
-  // VORTEX: the continuous melt — short holds, no clean resets, the motion dragged the whole way
-  VORTEX: { joins: [["bloom", 6], ["mosh", 4]], beats: [3, 4, 5], bloom: [20, 48], firstBeats: 1 },
-  MELT:   { joins: [["bloom", 5], ["mosh", 3], ["soup", 1]], beats: [2, 3, 4], bloom: [14, 30], firstBeats: 2 },
+  // VORTEX: the continuous melt — each GIF frozen to one picture and dragged into a spiral; no clean resets
+  VORTEX: { joins: [["bloom", 6], ["mosh", 4]], beats: [4, 6, 8], bloom: [24, 60], firstBeats: 1, drift: SWIRL, still: true },
+  // MELT: the GIFs keep playing under the drift (more life, a little rougher)
+  MELT:   { joins: [["bloom", 5], ["mosh", 3], ["soup", 1]], beats: [3, 4, 6], bloom: [16, 40], firstBeats: 2, drift: DRIFTS },
   SMEAR:  { joins: [["mosh", 5], ["bloom", 3], ["cut", 1]], beats: [2, 3, 4, 6], bloom: [10, 24] },
   CHAOS:  { joins: [["mosh", 4], ["bloom", 3], ["soup", 2], ["cut", 1]], beats: [1, 2, 2, 4], bloom: [8, 20] },
   CLEAN:  { joins: [["cut", 5], ["mosh", 4], ["bloom", 1]], beats: [4, 4, 8], bloom: [6, 14] },
@@ -66,7 +72,8 @@ export function planAuto({ seconds = 60, bpm = 120, style = "SMEAR", pool, seed 
     const count = join === "bloom" ? Math.min(pick(rnd, st.bloom), frames - 8) : 0;
     const j = join === "bloom" && count < 2 ? "mosh" : join;
     // every join except CUT deletes that segment's keyframe (one frame): encode one extra
-    segs.push({ src, frames: frames - Math.max(0, count) + (j === "cut" ? 0 : 1), ss, join: j, count });
+    const drift = st.drift ? pick(rnd, st.drift) : null;
+    segs.push({ src, frames: frames - Math.max(0, count) + (j === "cut" ? 0 : 1), ss, join: j, count, drift, still: !!st.still });
     used += frames;
   }
   return segs;
@@ -83,7 +90,7 @@ export async function runAuto(o, { sources, segs, ratio = "1:1", music = null, k
     o.setProgress(0.12, "AUTO: loading clips");
     for (const [i, s] of sources.entries()) await ff.writeFile(names[i], s.data);
     const frames = segs.map(s => s.frames);
-    const enc = autoEncodeArgs({ segs: segs.map(s => ({ name: names[s.src], gif: sources[s.src].kind === "gif", ss: s.ss })), frames, w, h });
+    const enc = autoEncodeArgs({ segs: segs.map(s => ({ name: names[s.src], gif: sources[s.src].kind === "gif", ss: s.ss, drift: s.drift, still: s.still })), frames, w, h });
     await o.run(enc, 0.14, 0.62, "AUTO: ENCODING");
     for (const n of names) await o.rm(n);
     if (o.stopped?.()) throw new Error("stopped");

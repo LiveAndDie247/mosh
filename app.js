@@ -12,7 +12,7 @@ import { initAuto } from "./autoui.js";
 import { sfx, audio } from "./sfx.js";
 import { GifSheet, loadIndex, randomGif, randomVibe, prepareGif, gifURL, gifArgs } from "./gif.js";
 
-const BUILD = 21;                         // shown in the LOG, so a screenshot tells which version ran
+const BUILD = 22;                         // shown in the LOG, so a screenshot tells which version ran
 
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
