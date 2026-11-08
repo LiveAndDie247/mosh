@@ -24,9 +24,9 @@ export const STYLES = {
   // the previous picture (the pictures sink into each other); then the bloom repeats one pure-push
   // frame for seconds and the picture melts outward. Now and then a picture lands clean (cut) and
   // the arc starts over, like the reference's opening.
-  VORTEX:  { joins: [["bloom", 8], ["mosh", 1], ["cut", 1]], beats: [12, 16, 20], bloom: [90, 210], firstBeats: 2, drift: PUSHES, bleed: true, moving: 12 },
+  VORTEX:  { joins: [["bloom", 8], ["mosh", 1], ["cut", 1]], beats: [12, 16, 20], bloom: [90, 210], firstBeats: 2, drift: PUSHES, bleed: true, moving: 12, phrase: true, vbeats: [20, 26, 32], vmotion: 0.35 },
   // MELT: the same, shorter arcs, a little soup: rougher, more alive
-  MELT:    { joins: [["bloom", 5], ["mosh", 3], ["soup", 1]], beats: [4, 6, 8], bloom: [40, 110], firstBeats: 2, drift: PUSHES, bleed: true, moving: 12 },
+  MELT:    { joins: [["bloom", 5], ["mosh", 3], ["soup", 1]], beats: [4, 6, 8], bloom: [40, 110], firstBeats: 2, drift: PUSHES, bleed: true, moving: 12, phrase: true, vbeats: [12, 16, 20], vmotion: 0.2 },
   // NATURAL: no push at all, only the clips' own motion (mosh.js pickBloom picks a real motion
   // frame to repeat). GIFs are grainy, so this is the speckle mosh, not the smooth melt.
   NATURAL: { joins: [["bloom", 8], ["mosh", 1], ["cut", 1]], beats: [8, 12, 16], bloom: [90, 210], firstBeats: 2, skip: 10, moving: 20 },
@@ -67,26 +67,57 @@ export function planAuto({ seconds = 60, bpm = 120, style = "SMEAR", pool, seed 
   const segs = [];
   let used = 0;
   while (used < total) {
+    const src = next(), s = pool[src];
+    const isVideo = s.kind === "video";
     // the first segment is the only clean one (its keyframe is kept), so keep it short when the style says so
-    const beatsN = segs.length === 0 && st.firstBeats ? st.firstBeats : pick(rnd, st.beats);
+    const beatsN = isVideo && st.vbeats ? pick(rnd, st.vbeats) : segs.length === 0 && st.firstBeats ? st.firstBeats : pick(rnd, st.beats);
     let frames = Math.max(8, Math.round(beatsN * beat * FPS));
     if (total - used - frames < 12) frames = total - used;  // no tiny last segment
     frames = Math.min(frames, total - used);
-    const src = next(), s = pool[src];
+
+    // PHRASE (real video, melt styles): the reference's shape, measured off it. The clip's own
+    // frames play in short bursts; between them one frame is repeated for seconds: a slow smear
+    // (a mid-size motion frame), a hold (a near-still frame), then a heavy swirl (a big one).
+    if (st.phrase && isVideo && frames >= 150) {
+      const clipF = Math.round((s.duration || 5) * FPS);
+      let b1 = Math.round(30 + rnd() * 20), b2 = Math.round(20 + rnd() * 20);
+      const fixed = 4 + 3 + 8;                                 // lead-in, the 3 repeated frames, a tail
+      const room = clipF - 6 - fixed;
+      if (b1 + b2 > room) { const k = Math.max(0.2, room / (b1 + b2)); b1 = Math.round(b1 * k); b2 = Math.round(b2 * k); }
+      const R = fixed + b1 + b2;                               // real frames encoded from the clip
+      const B = frames - R;                                    // frames of repeats (the smear)
+      const g = Math.round(B * 0.38), h = Math.round(B * 0.22), v = B - g - h;
+      const blooms = [
+        { skip: 4,  pct: 0.45, count: g, window: 10 },         // slow sink
+        { skip: b1, pct: 0.08, count: h, window: 8 },          // burst of real motion, then a hold
+        { skip: b2, pct: 0.92, count: v, window: 10 },         // burst, then the heavy swirl
+      ];
+      const ss = s.duration > R / FPS + 0.3 ? +(rnd() * (s.duration - R / FPS - 0.2)).toFixed(2) : 0;
+      const join = segs.length ? (rnd() < 0.85 ? "bloom" : "cut") : "cut";
+      segs.push({ src, frames: R + (join === "cut" ? 0 : 1), ss, join, count: B, blooms, skip: 0, drift: null, still: false });
+      used += frames;
+      continue;
+    }
     const len = frames / FPS;
     const ss = s.kind === "video" && s.duration > len + 0.2 ? +(rnd() * (s.duration - len)).toFixed(2) : 0;
     const join = segs.length ? weighted(rnd, st.joins) : "cut";
     // `bleed` (DRIFT): the source plays through first, the bloom then repeats a pure-drift frame
     // after that. Otherwise `skip` just leaves the first few motion frames alone so the picture
     // can start bleeding in before one of its motion frames gets repeated.
+    // FOOTAGE (real video) moshes on its own motion: no drift, no bleed. Its real frames must fit
+    // inside the clip (past its end it would freeze = a pause), so the bloom fills the rest.
+    const video = s.kind === "video";
+    if (video && join !== "bloom") frames = Math.max(8, Math.min(frames, Math.round((s.duration || 2) * FPS) - 2, total - used));
+    const bleed = st.bleed && !video;
     const playFrames = Math.min(Math.round((s.duration || 2) * FPS), frames - 20);
-    const minKeep = st.bleed ? Math.max(8, playFrames + 20) : Math.max(8, (st.skip || 0) + 12);
+    const minKeep = bleed ? Math.max(8, playFrames + 20) : Math.max(8, (st.skip || 10) + 12);
     // a BLOOM adds `count` repeated frames: take them out of the segment so the total stays exact
-    const count = join === "bloom" ? Math.min(pick(rnd, st.bloom), frames - minKeep) : 0;
+    let count = join === "bloom" ? Math.min(pick(rnd, st.bloom), frames - minKeep) : 0;
+    if (join === "bloom" && video) count = Math.max(count, Math.min(frames - minKeep, frames - (playFrames - 4)));
     const j = join === "bloom" && count < 2 ? "mosh" : join;
-    const skip = j !== "bloom" ? 0 : st.bleed ? Math.max(0, playFrames + 6) : (st.skip || 0);
+    const skip = j !== "bloom" ? 0 : bleed ? Math.max(0, playFrames + 6) : (st.skip || 10);
     // every join except CUT deletes that segment's keyframe (one frame): encode one extra
-    const drift = st.drift ? pick(rnd, st.drift) : null;
+    const drift = st.drift && !video ? pick(rnd, st.drift) : null;
     segs.push({ src, frames: frames - Math.max(0, count) + (j === "cut" ? 0 : 1), ss, join: j, count, skip, drift, still: !!st.still });
     used += frames;
   }
@@ -121,7 +152,8 @@ export async function runAuto(o, { sources, segs, ratio = "1:1", music = null, k
     const avi = await ff.readFile("chain.avi");
     await o.rm("chain.avi");
     const starts = chainStarts(frames);
-    const joins = segs.slice(1).map((s, k) => ({ at: starts[k + 1], type: s.join, count: s.count, skip: s.skip }));
+    const joins = segs.slice(1).map((s, k) => ({ at: starts[k + 1], type: s.join, count: s.count, skip: s.skip, blooms: s.blooms }));
+    if (segs[0].blooms) joins.unshift({ at: 0, blooms: segs[0].blooms });   // the first clip melts too (the reference's opening)
     const { data, stats } = moshChain(avi, joins);
     o.log(`auto: ${JSON.stringify({ ...stats, order: undefined })}`);
     await ff.writeFile("chain-m.avi", data);

@@ -126,6 +126,11 @@ export function moshAvi(input, { bloom = 0, bloomAt = 0 } = {}) {
 //             the tiniest are static (nothing to drag with), the biggest are the picture repainting
 //             itself (repeat one and it sits there as blocks), and the ones in between are motion.
 //             The first `skip` motion frames are left alone so the picture can bleed in first.
+//   A join (and the first link, as { at: 0 }) can instead carry a PHRASE: `blooms`, a list of
+//   { skip, pct, count, window }, applied in order along the link: skip `skip` motion frames (they
+//   play as they are: a burst of real motion), then among the next `window` frames repeat the one
+//   at the `pct` point of the size ranking `count` times. Low pct = a near-still frame = a hold,
+//   mid = a slow smear, high = a heavy swirl. That is how the reference melt is built.
 //   "soup"  : delete the keyframe and interleave the motion frames of both links for
 //             `soupFrames` frames around the join (alternating P-frames), then hand off
 //   "cut"   : keep the keyframe: a clean, hard reset
@@ -144,26 +149,46 @@ export function moshChain(input, joins = [], { soupFrames = 30 } = {}) {
   const joinAt = fi => joins.find(j => Math.abs(j.at - fi) <= 2) || null;
 
   const out = [], applied = [];
-  let removed = 0, segStart = 0, bloomPending = 0, bloomAt = -1;
+  let removed = 0, segStart = 0;
+  const blooms = new Map();                                 // vids index -> copies to insert after it
 
-  // The motion frame of a link (vids[from..] up to the next keyframe) to repeat: skip the first
-  // `skip` P-frames, then take the one at the `pct` point of the size ranking (0.7 = plenty of
-  // motion, short of a repaint). Returns an index into vids, or -1.
-  const pickBloom = (from, skip, pct = 0.7) => {
+  // The motion frames of a link: vids[from..] up to the next keyframe
+  const motionFrames = from => {
     const cands = [];
     for (let k = from; k < vids.length && vids[k].type !== 0; k++) if (vids[k].type === 1 && vids[k].size) cands.push(k);
-    const rest = cands.slice(Math.min(skip, Math.max(0, cands.length - 1)));
-    if (!rest.length) return -1;
-    const ranked = rest.slice().sort((a, b) => vids[a].size - vids[b].size);
-    return ranked[Math.min(ranked.length - 1, Math.floor(ranked.length * pct))];
+    return cands;
   };
+  // Lay a phrase along a link: for each spec, skip `skip` motion frames, then among the next
+  // `window` pick the frame at the `pct` point of the size ranking and repeat it `count` times.
+  // Returns what was placed (for the stats).
+  const layBlooms = (from, specs) => {
+    const cands = motionFrames(from), placed = [];
+    let pos = 0;
+    for (const sp of specs) {
+      pos = Math.min(cands.length - 1, pos + Math.max(0, sp.skip | 0));
+      if (pos < 0 || pos >= cands.length) break;
+      const win = cands.slice(pos, pos + Math.max(1, sp.window ?? 12));
+      const ranked = win.slice().sort((a, b) => vids[a].size - vids[b].size);
+      const idx = ranked[Math.min(ranked.length - 1, Math.floor(ranked.length * Math.min(1, Math.max(0, sp.pct ?? 0.7))))];
+      const count = Math.max(0, sp.count | 0);
+      if (count) blooms.set(idx, (blooms.get(idx) || 0) + count);
+      placed.push({ frame: vids[idx].fi, count, pct: sp.pct ?? 0.7 });
+      pos = cands.indexOf(idx) + 1;
+    }
+    return placed;
+  };
+  const specsOf = j => j.blooms?.length ? j.blooms : [{ skip: j.skip | 0, pct: j.pct ?? 0.7, count: j.count | 0, window: 1e9 }];
+
+  // A phrase on the first link (its keyframe stays): { at: 0, blooms: [...] }
+  const first = joins.find(j => j.at === 0 && j.blooms?.length);
+  if (first) applied.push({ at: 0, type: "phrase", blooms: layBlooms(1, first.blooms) });
   for (let i = 0; i < vids.length; i++) {
     const f = vids[i];
     if (f.type === 0 && i > 0) {
       const j = joinAt(f.fi) || { at: f.fi, type: "mosh", stray: true };
       if (j.type === "cut") {
         out.push({ ...f, key: true });
-        applied.push({ at: f.fi, type: "cut" });
+        applied.push({ at: f.fi, type: "cut", ...(j.blooms?.length && { blooms: layBlooms(i + 1, j.blooms) }) });
         segStart = out.length - 1;
         continue;
       }
@@ -187,22 +212,16 @@ export function moshChain(input, joins = [], { soupFrames = 30 } = {}) {
         i = k - 1;
         applied.push({ at: f.fi, type: "soup", frames: 2 * n });
       } else {
-        if (j.type === "bloom") {
-          bloomPending = Math.max(0, j.count | 0);
-          bloomAt = pickBloom(i + 1, j.skip | 0, j.pct ?? 0.7);
-          if (bloomAt < 0) bloomPending = 0;
-        }
-        if (!j.stray) applied.push({ at: f.fi, type: j.type, ...(j.type === "bloom" && { count: bloomPending, frame: bloomAt >= 0 ? vids[bloomAt].fi : null }) });
+        const placed = j.type === "bloom" ? layBlooms(i + 1, specsOf(j)) : null;
+        if (!j.stray) applied.push({ at: f.fi, type: j.type, ...(placed && { blooms: placed }) });
       }
       segStart = out.length;
       continue;
     }
     const isP = f.type === 1;
     out.push({ ...f, key: i === 0, p: isP });
-    if (bloomPending && i === bloomAt) {                      // the chosen motion frame: repeat it
-      for (let b = 0; b < bloomPending; b++) out.push({ ...f, key: false, p: true });
-      bloomPending = 0; bloomAt = -1;
-    }
+    const copies = blooms.get(i);
+    if (copies) for (let b = 0; b < copies; b++) out.push({ ...f, key: false, p: true });   // the chosen frame: repeat it
   }
   return {
     data: writeAvi(u8, hdrl, movi, out),

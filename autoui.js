@@ -3,22 +3,25 @@
 import { planAuto, runAuto, STYLES } from "./auto.js";
 import { detectBpm, tapper } from "./beat.js";
 import { loadIndex, shuffledGifs, gifURL } from "./gif.js";
+import { loadFootage, shuffledFootage, footageURL } from "./footage.js";
 
 const LENGTHS = [15, 30, 60];
 const KEY = "mosh.auto";
 
 export function initAuto(root, d) {
   // d: { loadFFmpeg, ffmpeg(), run, rm, setProgress, log, lock, showResult, bank, makeThumb, refreshBank, audio, probe }
-  let s = { vibe: "mix", seconds: 30, ratio: "1:1", style: "SMEAR", gifs: 8, bpm: 120, offset: 0 };
+  let s = { vibe: "mix", fvibe: "mix", seconds: 30, ratio: "1:1", style: "VORTEX", gifs: 8, bpm: 120, offset: 0 };
   try { s = { ...s, ...JSON.parse(localStorage.getItem(KEY) || "{}") }; } catch {}
   if (!STYLES[s.style]) s.style = "VORTEX";            // a style from an older build that's gone now
   const own = [];                    // [{ file, kind, duration, ext }]
   let song = null;                   // { file, duration }
-  let vibeVals = [];                 // the GifCities vibes, for SURPRISE
+  let vibeVals = [];
+  let noFootage = false;               // the footage library hasn't been pulled yet                 // the GifCities vibes, for SURPRISE
   const save = () => { const { bpm, offset, ...keep } = s; localStorage.setItem(KEY, JSON.stringify(keep)); };
 
   root.innerHTML = `
-    <div class="a-row"><span class="a-lab">GIFS</span><div class="seg a-vibes"></div></div>
+    <div class="a-row a-frow" hidden><span class="a-lab">FOOTAGE</span><div class="seg a-vibes a-fvibes"></div></div>
+    <div class="a-row"><span class="a-lab">GIFS</span><div class="seg a-vibes a-gvibes"></div></div>
     <div class="a-row"><span class="a-lab">YOURS</span><div class="a-own"><button class="a-add">+ ADD CLIPS</button><span class="a-ownlist">none · GIFs or videos from your phone</span><button class="a-clear" hidden>CLEAR</button></div></div>
     <div class="a-row"><span class="a-lab">LENGTH</span><div class="seg a-len"></div></div>
     <div class="a-row"><span class="a-lab">SHAPE</span><div class="seg a-ratio"></div></div>
@@ -57,9 +60,15 @@ export function initAuto(root, d) {
   seg(q(".a-len"), LENGTHS.map(n => [`${n}s`, n]), () => s.seconds, v => (s.seconds = v));
   seg(q(".a-ratio"), [["1:1 POST", "1:1"], ["9:16 REEL", "9:16"], ["16:9 YT", "16:9"]], () => s.ratio, v => (s.ratio = v));
   seg(q(".a-style"), Object.keys(STYLES).map(k => [k, k]), () => s.style, v => (s.style = v));
+  // FOOTAGE (real film clips, the smooth melt) — only if the library has been pulled
+  loadFootage().then(m => {
+    q(".a-frow").hidden = false;
+    seg(q(".a-fvibes"), [["MIX", "mix"], ["NONE", "none"], ...m.vibes.map(v => [v.toUpperCase(), v])], () => s.fvibe, v => (s.fvibe = v));
+    sync();
+  }).catch(() => { noFootage = true; });
   loadIndex().then(idx => {
     vibeVals = idx.vibes.slice();
-    seg(q(".a-vibes"), [["MIX", "mix"], ["NONE", "none"], ...idx.vibes.map(v => [v.toUpperCase(), v])], () => s.vibe, v => (s.vibe = v));
+    seg(q(".a-gvibes"), [["MIX", "mix"], ["NONE", "none"], ...idx.vibes.map(v => [v.toUpperCase(), v])], () => s.vibe, v => (s.vibe = v));
     sync();
   }).catch(e => d.log(`auto: no GifCities index (${e.message || e})`));
 
@@ -105,6 +114,27 @@ export function initAuto(root, d) {
   // GO
   // Fetch up to n distinct GIFs, several at once so a bigger pool doesn't mean a long wait.
   // Walks a shuffled copy of the pool, so a small vibe just yields fewer GIFs: it can't spin.
+  async function fetchFootage(n) {
+    if (!n || s.fvibe === "none") return [];
+    const m = await loadFootage().catch(() => null);
+    if (!m) return [];
+    const pool = shuffledFootage(s.fvibe === "mix" ? "" : s.fvibe, STYLES[s.style]?.vmotion || 0), out = [];
+    let next = 0;
+    const grab = async () => {
+      while (out.length < n && next < pool.length) {
+        const c = pool[next++];
+        try {
+          const res = await fetch(footageURL(c));
+          if (!res.ok) continue;
+          const data = new Uint8Array(await res.arrayBuffer());
+          if (out.length < n) { out.push({ kind: "video", ext: ".mp4", duration: c.d || 5, data, label: c.t }); d.setProgress(0.04 + 0.08 * out.length / n, `AUTO: FOOTAGE ${out.length}/${n}`); }
+        } catch {}
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, n) }, grab));
+    return out;
+  }
+
   async function fetchGifs(n) {
     if (!n) return [];
     const idx = await loadIndex(), out = [];
@@ -139,9 +169,14 @@ export function initAuto(root, d) {
         d.setProgress(0.03, "AUTO: GATHERING");
         // enough GIFs that a longer clip doesn't recycle the same few: roughly one per cut, capped
         const want = Math.max(8, Math.min(26, Math.round(s.seconds / 2.2)));
-        const nGifs = s.vibe === "none" ? 0 : own.length ? Math.max(4, Math.round(want / 2)) : want;
-        if (!nGifs && !own.length) throw new Error("pick a GIF vibe or add your own clips");
-        const sources = [...await fetchGifs(nGifs)];
+        const useFoot = !noFootage && s.fvibe !== "none", useGif = s.vibe !== "none";
+        // footage and GIFs together split the pool; your own clips take half of it
+        const share = (useFoot && useGif ? 0.5 : 1) * (own.length ? 0.5 : 1);
+        const nFoot = useFoot ? Math.max(3, Math.round(want * share)) : 0;
+        const nGifs = useGif ? Math.max(own.length ? 4 : 3, Math.round(want * share)) : 0;
+        if (!nGifs && !nFoot && !own.length) throw new Error("pick FOOTAGE or a GIF vibe, or add your own clips");
+        const sources = [...await fetchFootage(nFoot), ...await fetchGifs(nGifs)];
+        if (!sources.length && !own.length) throw new Error("couldn't load any clips");
         for (const c of own) sources.push({ kind: c.kind, ext: c.ext, duration: c.duration, data: new Uint8Array(await c.file.arrayBuffer()), label: c.file.name });
         const segs = planAuto({ seconds: s.seconds, bpm: s.bpm, style: s.style, pool: sources, seed: Date.now() });
         d.log(`auto: ${segs.length} cuts from ${sources.length} sources, ${s.style}, ${s.bpm} BPM, ${s.seconds}s ${s.ratio}`);
