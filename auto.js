@@ -6,12 +6,16 @@
 import { autoEncodeArgs, chainStarts, decodeArgs, keepColorVf, RATIOS, FPS } from "./pipeline.js";
 import { moshChain } from "./mosh.js";
 
-// Styles: how cuts are joined, how long segments are (in beats), how hard blooms are
+// Styles: how cuts are joined, how long segments are (in beats), how hard blooms are.
+// A BLOOM repeats the frame after a cut N times, so the motion keeps smearing: big bloom + long
+// holds = the continuous "Drake & Josh" vortex melt. Small bloom + short holds = choppy glitch.
 export const STYLES = {
-  SMEAR: { joins: [["mosh", 6], ["bloom", 3], ["cut", 1]], beats: [4, 8], bloom: [8, 16] },
-  MELT:  { joins: [["bloom", 6], ["mosh", 3], ["soup", 1]], beats: [8, 8, 16], bloom: [16, 30] },
-  CHAOS: { joins: [["mosh", 4], ["bloom", 3], ["soup", 2], ["cut", 1]], beats: [2, 2, 4], bloom: [16, 30] },
-  CLEAN: { joins: [["cut", 5], ["mosh", 4], ["bloom", 1]], beats: [4, 4, 8], bloom: [4, 8] },
+  // VORTEX: the continuous melt — long holds, the motion re-applied for seconds (the reference look)
+  VORTEX: { joins: [["bloom", 9], ["mosh", 1]], beats: [12, 16, 20], bloom: [90, 220] },
+  MELT:   { joins: [["bloom", 7], ["mosh", 2], ["soup", 1]], beats: [8, 12, 16], bloom: [48, 140] },
+  SMEAR:  { joins: [["bloom", 5], ["mosh", 4], ["cut", 1]], beats: [6, 8, 12], bloom: [24, 72] },
+  CHAOS:  { joins: [["mosh", 4], ["bloom", 3], ["soup", 2], ["cut", 1]], beats: [2, 3, 4], bloom: [20, 48] },
+  CLEAN:  { joins: [["cut", 5], ["mosh", 4], ["bloom", 1]], beats: [4, 4, 8], bloom: [6, 14] },
 };
 
 const pick = (rnd, a) => a[Math.floor(rnd() * a.length)];
