@@ -12,7 +12,7 @@ import { initAuto } from "./autoui.js";
 import { sfx, audio } from "./sfx.js";
 import { GifSheet, loadIndex, randomGif, randomVibe, prepareGif, gifURL, gifArgs } from "./gif.js";
 
-const BUILD = 30;                         // shown in the LOG, so a screenshot tells which version ran
+const BUILD = 31;                         // shown in the LOG, so a screenshot tells which version ran
 
 // Single-thread core: no SharedArrayBuffer, so it works on GitHub Pages without COOP/COEP
 const CORE_VERSION = "0.12.10";
@@ -403,6 +403,17 @@ async function showResult(blob, { w, h, duration, name = `mosh-${Date.now()}.mp4
 }
 
 // One lock for everything that uses the engine for a while (MOSH, DAISY)
+// CANCEL: stop whatever is rendering. ffmpeg.wasm can't abort a job, so the engine is thrown away
+// and reloaded (the service worker has it cached, so that's quick). The running job then fails with
+// "stopped", and lock() lets go.
+let cancelled = false;
+async function cancelRender() {
+  if (!busy || !ffmpeg) return;
+  cancelled = true;
+  try { ffmpeg.terminate(); } catch {}
+  ffmpeg = null; ready = null;
+  log("cancelled: reloading the engine");
+}
 async function lock(fn) {
   if (busy || prepping) throw new Error("wait: something is still rendering");
   busy = true; document.body.classList.add("busy"); refresh();
@@ -576,6 +587,7 @@ const daisy = new Daisy($("daisy"), {
   toSlot: (which, item) => setClip(which, new File([item.blob], `${item.id}.mp4`, { type: "video/mp4" }), null, item.label),
 });
 initAuto($("auto"), {
+  isBusy: () => busy || prepping, cancel: cancelRender, wasCancelled: () => { const c = cancelled; cancelled = false; return c; },
   loadFFmpeg, ffmpeg: () => ffmpeg, run, rm, setProgress, log, lock, showResult, bank, makeThumb, audio, probe,
   refreshBank: () => daisy.refreshBank(),
 });

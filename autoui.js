@@ -16,7 +16,8 @@ export function initAuto(root, d) {
   const own = [];                    // [{ file, kind, duration, ext }]
   let song = null;                   // { file, duration }
   let vibeVals = [];
-  let noFootage = false;               // the footage library hasn't been pulled yet                 // the GifCities vibes, for SURPRISE
+  let noFootage = false;
+  let lastFoot = new Set();             // the clips the last take used: the next take starts with others               // the footage library hasn't been pulled yet                 // the GifCities vibes, for SURPRISE
   const save = () => { const { bpm, offset, ...keep } = s; localStorage.setItem(KEY, JSON.stringify(keep)); };
 
   root.innerHTML = `
@@ -118,7 +119,10 @@ export function initAuto(root, d) {
     if (!n || s.fvibe === "none") return [];
     const m = await loadFootage().catch(() => null);
     if (!m) return [];
-    const pool = shuffledFootage(s.fvibe === "mix" ? "" : s.fvibe, STYLES[s.style]?.vmotion || 0), out = [];
+    let pool = shuffledFootage(s.fvibe === "mix" ? "" : s.fvibe, STYLES[s.style]?.vmotion || 0);
+    const fresh = pool.filter(c => !lastFoot.has(c.f));
+    if (fresh.length >= Math.min(n, 4)) pool = [...fresh, ...pool.filter(c => lastFoot.has(c.f))];   // new clips first
+    const out = [], used = [];
     let next = 0;
     const grab = async () => {
       while (out.length < n && next < pool.length) {
@@ -127,11 +131,12 @@ export function initAuto(root, d) {
           const res = await fetch(footageURL(c));
           if (!res.ok) continue;
           const data = new Uint8Array(await res.arrayBuffer());
-          if (out.length < n) { out.push({ kind: "video", ext: ".mp4", duration: c.d || 5, data, label: c.t }); d.setProgress(0.04 + 0.08 * out.length / n, `AUTO: FOOTAGE ${out.length}/${n}`); }
+          if (out.length < n) { out.push({ kind: "video", ext: ".mp4", duration: c.d || 5, data, label: c.t }); used.push(c.f); d.setProgress(0.04 + 0.08 * out.length / n, `AUTO: FOOTAGE ${out.length}/${n}`); }
         } catch {}
       }
     };
     await Promise.all(Array.from({ length: Math.min(4, n) }, grab));
+    lastFoot = new Set(used);
     return out;
   }
 
@@ -160,10 +165,23 @@ export function initAuto(root, d) {
     return out.slice(0, n);
   }
 
+  // Every tap is a new take. Tapping while one is rendering cancels it and starts over with new clips.
+  let again = false;
+  async function newTake() {
+    if (d.isBusy?.()) {
+      again = true;
+      q(".a-go").textContent = "NEW TAKE…";
+      d.setProgress(0.01, "CANCELLING: new take with new clips");
+      await d.cancel?.();
+      return;                                   // go()'s finally sees `again` and restarts
+    }
+    go();
+  }
   async function go() {
     let wake = null;
     try { wake = await navigator.wakeLock?.request("screen"); } catch {}
     try {
+      q(".a-go").textContent = "RENDERING · TAP = NEW TAKE";
       const out = await d.lock(async () => {
         await d.loadFFmpeg();
         d.setProgress(0.03, "AUTO: GATHERING");
@@ -192,14 +210,19 @@ export function initAuto(root, d) {
       await d.showResult(out.blob, { w: out.w, h: out.h, duration: out.duration, name: `mosh-auto-${Date.now()}.mp4`, label: `auto ${s.style}` });
       document.querySelector("#player")?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (e) {
-      console.error(e);
-      d.log(`AUTO: ${e.message || e}`);
-      d.setProgress(0, `ERROR: ${(e.message || e).toString().slice(0, 60)}`);
+      if (d.wasCancelled?.()) d.log("AUTO: cancelled for a new take");
+      else {
+        console.error(e);
+        d.log(`AUTO: ${e.message || e}`);
+        d.setProgress(0, `ERROR: ${(e.message || e).toString().slice(0, 60)}`);
+      }
     } finally {
       try { await wake?.release(); } catch {}
+      sync();                                   // button text back
+      if (again) { again = false; go(); }       // the tap that cancelled: start the new take
     }
   }
-  q(".a-go").addEventListener("click", go);
+  q(".a-go").addEventListener("click", newTake);
   q(".a-surprise").addEventListener("click", () => {
     const styles = Object.keys(STYLES);
     s.style = styles[Math.floor(Math.random() * styles.length)];
@@ -208,7 +231,7 @@ export function initAuto(root, d) {
     if (own.length) pool.push("mix");
     s.vibe = pool[Math.floor(Math.random() * pool.length)] || "mix";
     sync();
-    go();
+    newTake();
   });
   sync();
 }

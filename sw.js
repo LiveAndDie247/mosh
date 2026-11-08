@@ -1,7 +1,7 @@
 // Service worker: makes MOSH installable and caches the ~31 MB ffmpeg engine after the
 // first run, so later runs start fast. App files: network first (so updates arrive),
 // falling back to the cache offline. The engine on jsDelivr: cache first (it's versioned).
-const CACHE = "mosh-v17";
+const CACHE = "mosh-v18";
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(["./", "index.html", "style.css", "app.js", "mosh.js", "pipeline.js", "auto.js", "autoui.js", "beat.js", "stars.js", "manifest.webmanifest"])).catch(() => {}));
