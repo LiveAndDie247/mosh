@@ -121,7 +121,9 @@ export function moshAvi(input, { bloom = 0, bloomAt = 0 } = {}) {
 // DAISY CHAIN: one AVI of several links, with a forced keyframe exactly where each link starts.
 // joins: [{ at: frame number where the next link starts, type, count }] where type is
 //   "mosh"  : delete the keyframe; the next link's motion drags this link's last picture
-//   "bloom" : the same, plus `count` extra copies of the next link's first motion frame
+//   "bloom" : the same, plus `count` extra copies of one of the next link's motion frames: the
+//             first one, or the one `skip` motion frames in (so a GIF can first bleed through,
+//             and the frame that gets repeated is pure drift, not the picture painting itself in)
 //   "soup"  : delete the keyframe and interleave the motion frames of both links for
 //             `soupFrames` frames around the join (alternating P-frames), then hand off
 //   "cut"   : keep the keyframe: a clean, hard reset
@@ -140,7 +142,7 @@ export function moshChain(input, joins = [], { soupFrames = 30 } = {}) {
   const joinAt = fi => joins.find(j => Math.abs(j.at - fi) <= 2) || null;
 
   const out = [], applied = [];
-  let removed = 0, segStart = 0, bloomPending = 0;
+  let removed = 0, segStart = 0, bloomPending = 0, bloomSkip = 0;
   for (let i = 0; i < vids.length; i++) {
     const f = vids[i];
     if (f.type === 0 && i > 0) {
@@ -171,8 +173,8 @@ export function moshChain(input, joins = [], { soupFrames = 30 } = {}) {
         i = k - 1;
         applied.push({ at: f.fi, type: "soup", frames: 2 * n });
       } else {
-        if (j.type === "bloom") bloomPending = Math.max(0, j.count | 0);
-        if (!j.stray) applied.push({ at: f.fi, type: j.type, ...(j.type === "bloom" && { count: bloomPending }) });
+        if (j.type === "bloom") { bloomPending = Math.max(0, j.count | 0); bloomSkip = Math.max(0, j.skip | 0); }
+        if (!j.stray) applied.push({ at: f.fi, type: j.type, ...(j.type === "bloom" && { count: bloomPending, skip: bloomSkip }) });
       }
       segStart = out.length;
       continue;
@@ -180,8 +182,11 @@ export function moshChain(input, joins = [], { soupFrames = 30 } = {}) {
     const isP = f.type === 1;
     out.push({ ...f, key: i === 0, p: isP });
     if (bloomPending && isP && f.size) {
-      for (let b = 0; b < bloomPending; b++) out.push({ ...f, key: false, p: true });
-      bloomPending = 0;
+      if (bloomSkip > 0) bloomSkip--;                           // let the picture bleed in first
+      else {
+        for (let b = 0; b < bloomPending; b++) out.push({ ...f, key: false, p: true });
+        bloomPending = 0;
+      }
     }
   }
   return {

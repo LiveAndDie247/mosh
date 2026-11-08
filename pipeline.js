@@ -51,7 +51,7 @@ export function autoEncodeArgs({ segs, frames, w, h, out = "chain.avi" }) {
   // `still`: freeze the source to its first picture before drifting (no GIF frames rebuilding it)
   const parts = segs.map((s, i) =>
     `[${i}:v]${s.still ? "trim=end_frame=1,setpts=PTS-STARTPTS," : ""}tpad=stop_mode=clone:stop_duration=${(frames[i] / FPS + 1).toFixed(3)},` +
-    `${s.gif ? "scale='min(iw*4,960)':-2:flags=neighbor," : ""}${s.drift ? driftVf(s.drift, frames[i], w, h) : fit},trim=end_frame=${frames[i]},setpts=PTS-STARTPTS[v${i}]`);
+    `${s.gif && !s.drift ? "scale='min(iw*4,960)':-2:flags=neighbor," : ""}${s.drift ? driftVf(s.drift, frames[i], w, h) : fit},trim=end_frame=${frames[i]},setpts=PTS-STARTPTS[v${i}]`);
   const cat = `${segs.map((_, i) => `[v${i}]`).join("")}concat=n=${segs.length}:v=1:a=0[v]`;
   const starts = chainStarts(frames).slice(1);
   return [
@@ -70,21 +70,26 @@ export function autoEncodeArgs({ segs, frames, w, h, out = "chain.avi" }) {
 // up and slowly zoomed / rotated / panned, so its P-frames are pure coherent motion vectors with
 // almost no residual. Deleting the keyframe then drags the previous picture into that motion: the
 // spiral vortex. Returns a filter chain that ends at w×h, FPS, yuv420p.
+// The drift is SLOW on purpose: the swirl is built by BLOOM re-applying one small motion step
+// dozens of times, so a gentle per-frame step accumulates into a smooth vortex while the picture
+// stays recognizable for seconds (like the reference). A fast drift wipes the picture to mush in
+// a second and leaves nothing to smear.
 export const DRIFTS = ["spiral", "spiralr", "zoomin", "zoomout", "spin", "pan"];
 export function driftVf(kind, frames, w, h) {
   const N = Math.max(1, frames);
-  // resample to FPS first: zoompan (d=1) emits one frame per input frame, so a 12 fps GIF would come up short
-  const big = `fps=${FPS},scale=${2 * w}:${2 * h}:force_original_aspect_ratio=increase,crop=${2 * w}:${2 * h},setsar=1`;
+  // resample to FPS first: zoompan (d=1) emits one frame per input frame, so a 12 fps GIF would come up short.
+  // Smooth (bicubic) upscale here, not the crisp nearest-neighbour: the vortex should flow, not ring.
+  const big = `fps=${FPS},scale=${2 * w}:${2 * h}:force_original_aspect_ratio=increase:flags=bicubic,crop=${2 * w}:${2 * h},setsar=1`;
   const rot = r => `rotate='t*${r}':c=black:ow=iw:oh=ih`;
   const zp = (z, x = "iw/2-(iw/zoom/2)", y = "ih/2-(ih/zoom/2)") => `zoompan=z='${z}':d=1:x='${x}':y='${y}':s=${w}x${h}:fps=${FPS}`;
   const chain = {
-    spiral:  `${big},${rot(0.35)},${zp(`1+0.7*on/${N}`)}`,
-    spiralr: `${big},${rot(-0.35)},${zp(`1+0.7*on/${N}`)}`,
-    zoomin:  `${big},${zp(`1+0.9*on/${N}`)}`,
-    zoomout: `${big},${zp(`1.9-0.9*on/${N}`)}`,
-    spin:    `${big},${rot(0.6)},${zp("1.3")}`,
-    pan:     `${big},${zp("1.4", `(iw-iw/zoom)*on/${N}`)}`,
-  }[kind] || `${big},${rot(0.35)},${zp(`1+0.7*on/${N}`)}`;
+    spiral:  `${big},${rot(0.09)},${zp(`1.05+0.22*on/${N}`)}`,
+    spiralr: `${big},${rot(-0.09)},${zp(`1.05+0.22*on/${N}`)}`,
+    zoomin:  `${big},${zp(`1.05+0.3*on/${N}`)}`,
+    zoomout: `${big},${zp(`1.35-0.3*on/${N}`)}`,
+    spin:    `${big},${rot(0.14)},${zp("1.2")}`,
+    pan:     `${big},${zp("1.3", `(iw-iw/zoom)*on/${N}`)}`,
+  }[kind] || `${big},${rot(0.09)},${zp(`1.05+0.22*on/${N}`)}`;
   return `${chain},format=yuv420p`;
 }
 

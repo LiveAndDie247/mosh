@@ -16,11 +16,14 @@ import { moshChain } from "./mosh.js";
 // so every join drags the previous picture into a zoom / spin / pan. That is the reference vortex.
 // The smooth ones. No pan (it tears) and no zoomout: zooming OUT reveals new pixels at the edges,
 // which get painted in clean and rebuild the picture. Zoom in / spin / spiral only ever re-use pixels.
-const SWIRL = ["spiral", "spiralr", "zoomin", "spin"];
+const SWIRL = ["zoomin", "zoomin", "spiral", "spiralr", "spin"];      // zoom-in twice: the radial streaks
 export const STYLES = {
-  // VORTEX: the continuous melt — each GIF frozen to one picture and dragged into a spiral; no clean resets
-  VORTEX: { joins: [["bloom", 6], ["mosh", 4]], beats: [4, 6, 8], bloom: [24, 60], firstBeats: 1, drift: SWIRL, still: true },
-  // MELT: the GIFs keep playing under the drift (more life, a little rougher)
+  // VORTEX: the reference melt, at the reference's pace: a few long arcs. Each GIF plays once under
+  // a slow drift so its frames bleed through the previous swirl (the pictures sink into each other);
+  // then the bloom repeats one pure-drift frame for seconds and the swirl grows. Now and then a
+  // picture lands clean (cut) and the arc starts over, like the reference's opening.
+  VORTEX: { joins: [["bloom", 8], ["mosh", 1], ["cut", 1]], beats: [12, 16, 20], bloom: [90, 210], firstBeats: 2, drift: SWIRL, bleed: true },
+  // MELT: same, but every drift (pans and zoom-outs too) and more soup: rougher, more alive
   MELT:   { joins: [["bloom", 5], ["mosh", 3], ["soup", 1]], beats: [3, 4, 6], bloom: [16, 40], firstBeats: 2, drift: DRIFTS },
   SMEAR:  { joins: [["mosh", 5], ["bloom", 3], ["cut", 1]], beats: [2, 3, 4, 6], bloom: [10, 24] },
   CHAOS:  { joins: [["mosh", 4], ["bloom", 3], ["soup", 2], ["cut", 1]], beats: [1, 2, 2, 4], bloom: [8, 20] },
@@ -68,12 +71,17 @@ export function planAuto({ seconds = 60, bpm = 120, style = "SMEAR", pool, seed 
     const len = frames / FPS;
     const ss = s.kind === "video" && s.duration > len + 0.2 ? +(rnd() * (s.duration - len)).toFixed(2) : 0;
     const join = segs.length ? weighted(rnd, st.joins) : "cut";
+    // `bleed`: the source plays through first (a GIF's own frames paint it in through the previous
+    // swirl), the bloom then repeats a pure-drift frame after that: skip past the bleed-in
+    const playFrames = Math.min(Math.round((s.duration || 2) * FPS), frames - 20);
+    const minKeep = st.bleed ? Math.max(8, playFrames + 20) : 8;
     // a BLOOM adds `count` repeated frames: take them out of the segment so the total stays exact
-    const count = join === "bloom" ? Math.min(pick(rnd, st.bloom), frames - 8) : 0;
+    const count = join === "bloom" ? Math.min(pick(rnd, st.bloom), frames - minKeep) : 0;
     const j = join === "bloom" && count < 2 ? "mosh" : join;
+    const skip = j === "bloom" && st.bleed ? Math.max(0, playFrames + 6) : 0;
     // every join except CUT deletes that segment's keyframe (one frame): encode one extra
     const drift = st.drift ? pick(rnd, st.drift) : null;
-    segs.push({ src, frames: frames - Math.max(0, count) + (j === "cut" ? 0 : 1), ss, join: j, count, drift, still: !!st.still });
+    segs.push({ src, frames: frames - Math.max(0, count) + (j === "cut" ? 0 : 1), ss, join: j, count, skip, drift, still: !!st.still });
     used += frames;
   }
   return segs;
@@ -98,7 +106,7 @@ export async function runAuto(o, { sources, segs, ratio = "1:1", music = null, k
     const avi = await ff.readFile("chain.avi");
     await o.rm("chain.avi");
     const starts = chainStarts(frames);
-    const joins = segs.slice(1).map((s, k) => ({ at: starts[k + 1], type: s.join, count: s.count }));
+    const joins = segs.slice(1).map((s, k) => ({ at: starts[k + 1], type: s.join, count: s.count, skip: s.skip }));
     const { data, stats } = moshChain(avi, joins);
     o.log(`auto: ${JSON.stringify({ ...stats, order: undefined })}`);
     await ff.writeFile("chain-m.avi", data);
