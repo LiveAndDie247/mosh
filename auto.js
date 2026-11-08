@@ -9,12 +9,15 @@ import { moshChain } from "./mosh.js";
 // Styles: how cuts are joined, how long segments are (in beats), how hard blooms are.
 // A BLOOM repeats the frame after a cut N times, so the motion keeps smearing: big bloom + long
 // holds = the continuous "Drake & Josh" vortex melt. Small bloom + short holds = choppy glitch.
+// The mosh only happens AT a join (keyframe deleted → the next motion drags the held picture),
+// so SHORT segments = constant smear, LONG segments = the clip plays clean between blips. For a
+// continuous melt: short holds, never a "cut" (which resets to a clean picture), steady bloom.
 export const STYLES = {
-  // VORTEX: the continuous melt — long holds, the motion re-applied for seconds (the reference look)
-  VORTEX: { joins: [["bloom", 9], ["mosh", 1]], beats: [12, 16, 20], bloom: [90, 220] },
-  MELT:   { joins: [["bloom", 7], ["mosh", 2], ["soup", 1]], beats: [8, 12, 16], bloom: [48, 140] },
-  SMEAR:  { joins: [["bloom", 5], ["mosh", 4], ["cut", 1]], beats: [6, 8, 12], bloom: [24, 72] },
-  CHAOS:  { joins: [["mosh", 4], ["bloom", 3], ["soup", 2], ["cut", 1]], beats: [2, 3, 4], bloom: [20, 48] },
+  // VORTEX: the continuous melt — short holds, no clean resets, the motion dragged the whole way
+  VORTEX: { joins: [["bloom", 6], ["mosh", 4]], beats: [3, 4, 5], bloom: [20, 48], firstBeats: 1 },
+  MELT:   { joins: [["bloom", 5], ["mosh", 3], ["soup", 1]], beats: [2, 3, 4], bloom: [14, 30], firstBeats: 2 },
+  SMEAR:  { joins: [["mosh", 5], ["bloom", 3], ["cut", 1]], beats: [2, 3, 4, 6], bloom: [10, 24] },
+  CHAOS:  { joins: [["mosh", 4], ["bloom", 3], ["soup", 2], ["cut", 1]], beats: [1, 2, 2, 4], bloom: [8, 20] },
   CLEAN:  { joins: [["cut", 5], ["mosh", 4], ["bloom", 1]], beats: [4, 4, 8], bloom: [6, 14] },
 };
 
@@ -50,7 +53,9 @@ export function planAuto({ seconds = 60, bpm = 120, style = "SMEAR", pool, seed 
   const segs = [];
   let used = 0;
   while (used < total) {
-    let frames = Math.max(8, Math.round(pick(rnd, st.beats) * beat * FPS));
+    // the first segment is the only clean one (its keyframe is kept), so keep it short when the style says so
+    const beatsN = segs.length === 0 && st.firstBeats ? st.firstBeats : pick(rnd, st.beats);
+    let frames = Math.max(8, Math.round(beatsN * beat * FPS));
     if (total - used - frames < 12) frames = total - used;  // no tiny last segment
     frames = Math.min(frames, total - used);
     const src = next(), s = pool[src];
