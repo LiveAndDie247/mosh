@@ -85,7 +85,7 @@ export function driftVf(kind, frames, w, h) {
   // Smooth (bicubic) scale, not the crisp nearest-neighbour: the vortex should flow, not ring.
   // At the OUTPUT size, not 2x: ffmpeg buffers frames from every segment at once, and 2x frames
   // are 4x the memory, which is more than a phone has. The zoom goes a little soft; a mosh doesn't care.
-  const big = `fps=${FPS},scale=${w}:${h}:force_original_aspect_ratio=increase:flags=bicubic,crop=${w}:${h},setsar=1`;
+  const big = `fps=${FPS},scale=${4 * w}:${4 * h}:force_original_aspect_ratio=increase:flags=bicubic,crop=${4 * w}:${4 * h},setsar=1`;
   const rot = r => `rotate='t*${r}':c=black:ow=iw:oh=ih`;
   const zp = (z, x = "iw/2-(iw/zoom/2)", y = "ih/2-(ih/zoom/2)") => `zoompan=z='${z}':d=1:x='${x}':y='${y}':s=${w}x${h}:fps=${FPS}`;
   // off-centre push: the crop window drifts toward a corner as it zooms (stays inside the 2x frame)
