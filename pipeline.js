@@ -74,7 +74,11 @@ export function autoEncodeArgs({ segs, frames, w, h, out = "chain.avi" }) {
 // dozens of times, so a gentle per-frame step accumulates into a smooth vortex while the picture
 // stays recognizable for seconds (like the reference). A fast drift wipes the picture to mush in
 // a second and leaves nothing to smear.
+// No rotation in the PUSH set: a turning picture reads as a picture turning. A slow push-in reads
+// as camera motion (what the reference's motion is), and off-centre pushes melt asymmetrically,
+// which looks organic rather than a bullseye.
 export const DRIFTS = ["spiral", "spiralr", "zoomin", "zoomout", "spin", "pan"];
+export const PUSHES = ["push", "pushL", "pushR", "pushU", "pushD"];
 export function driftVf(kind, frames, w, h) {
   const N = Math.max(1, frames);
   // resample to FPS first: zoompan (d=1) emits one frame per input frame, so a 12 fps GIF would come up short.
@@ -82,7 +86,15 @@ export function driftVf(kind, frames, w, h) {
   const big = `fps=${FPS},scale=${2 * w}:${2 * h}:force_original_aspect_ratio=increase:flags=bicubic,crop=${2 * w}:${2 * h},setsar=1`;
   const rot = r => `rotate='t*${r}':c=black:ow=iw:oh=ih`;
   const zp = (z, x = "iw/2-(iw/zoom/2)", y = "ih/2-(ih/zoom/2)") => `zoompan=z='${z}':d=1:x='${x}':y='${y}':s=${w}x${h}:fps=${FPS}`;
+  // off-centre push: the crop window drifts toward a corner as it zooms (stays inside the 2x frame)
+  const z = `1.05+0.26*on/${N}`;
+  const push = (cx, cy) => zp(z, `iw/2-(iw/zoom/2)+(${cx})*(iw-iw/zoom)/2*on/${N}`, `ih/2-(ih/zoom/2)+(${cy})*(ih-ih/zoom)/2*on/${N}`);
   const chain = {
+    push:    `${big},${push(0, 0)}`,
+    pushL:   `${big},${push(-0.6, 0.15)}`,
+    pushR:   `${big},${push(0.6, -0.15)}`,
+    pushU:   `${big},${push(0.15, -0.6)}`,
+    pushD:   `${big},${push(-0.15, 0.6)}`,
     spiral:  `${big},${rot(0.09)},${zp(`1.05+0.22*on/${N}`)}`,
     spiralr: `${big},${rot(-0.09)},${zp(`1.05+0.22*on/${N}`)}`,
     zoomin:  `${big},${zp(`1.05+0.3*on/${N}`)}`,

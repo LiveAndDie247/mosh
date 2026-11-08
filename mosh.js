@@ -121,9 +121,11 @@ export function moshAvi(input, { bloom = 0, bloomAt = 0 } = {}) {
 // DAISY CHAIN: one AVI of several links, with a forced keyframe exactly where each link starts.
 // joins: [{ at: frame number where the next link starts, type, count }] where type is
 //   "mosh"  : delete the keyframe; the next link's motion drags this link's last picture
-//   "bloom" : the same, plus `count` extra copies of one of the next link's motion frames: the
-//             first one, or the one `skip` motion frames in (so a GIF can first bleed through,
-//             and the frame that gets repeated is pure drift, not the picture painting itself in)
+//   "bloom" : the same, plus `count` extra copies of one of the next link's motion frames. Which
+//             one: the link's P-frames are ranked by compressed size, which tracks what they carry:
+//             the tiniest are static (nothing to drag with), the biggest are the picture repainting
+//             itself (repeat one and it sits there as blocks), and the ones in between are motion.
+//             The first `skip` motion frames are left alone so the picture can bleed in first.
 //   "soup"  : delete the keyframe and interleave the motion frames of both links for
 //             `soupFrames` frames around the join (alternating P-frames), then hand off
 //   "cut"   : keep the keyframe: a clean, hard reset
@@ -142,7 +144,19 @@ export function moshChain(input, joins = [], { soupFrames = 30 } = {}) {
   const joinAt = fi => joins.find(j => Math.abs(j.at - fi) <= 2) || null;
 
   const out = [], applied = [];
-  let removed = 0, segStart = 0, bloomPending = 0, bloomSkip = 0;
+  let removed = 0, segStart = 0, bloomPending = 0, bloomAt = -1;
+
+  // The motion frame of a link (vids[from..] up to the next keyframe) to repeat: skip the first
+  // `skip` P-frames, then take the one at the `pct` point of the size ranking (0.7 = plenty of
+  // motion, short of a repaint). Returns an index into vids, or -1.
+  const pickBloom = (from, skip, pct = 0.7) => {
+    const cands = [];
+    for (let k = from; k < vids.length && vids[k].type !== 0; k++) if (vids[k].type === 1 && vids[k].size) cands.push(k);
+    const rest = cands.slice(Math.min(skip, Math.max(0, cands.length - 1)));
+    if (!rest.length) return -1;
+    const ranked = rest.slice().sort((a, b) => vids[a].size - vids[b].size);
+    return ranked[Math.min(ranked.length - 1, Math.floor(ranked.length * pct))];
+  };
   for (let i = 0; i < vids.length; i++) {
     const f = vids[i];
     if (f.type === 0 && i > 0) {
@@ -173,20 +187,21 @@ export function moshChain(input, joins = [], { soupFrames = 30 } = {}) {
         i = k - 1;
         applied.push({ at: f.fi, type: "soup", frames: 2 * n });
       } else {
-        if (j.type === "bloom") { bloomPending = Math.max(0, j.count | 0); bloomSkip = Math.max(0, j.skip | 0); }
-        if (!j.stray) applied.push({ at: f.fi, type: j.type, ...(j.type === "bloom" && { count: bloomPending, skip: bloomSkip }) });
+        if (j.type === "bloom") {
+          bloomPending = Math.max(0, j.count | 0);
+          bloomAt = pickBloom(i + 1, j.skip | 0, j.pct ?? 0.7);
+          if (bloomAt < 0) bloomPending = 0;
+        }
+        if (!j.stray) applied.push({ at: f.fi, type: j.type, ...(j.type === "bloom" && { count: bloomPending, frame: bloomAt >= 0 ? vids[bloomAt].fi : null }) });
       }
       segStart = out.length;
       continue;
     }
     const isP = f.type === 1;
     out.push({ ...f, key: i === 0, p: isP });
-    if (bloomPending && isP && f.size) {
-      if (bloomSkip > 0) bloomSkip--;                           // let the picture bleed in first
-      else {
-        for (let b = 0; b < bloomPending; b++) out.push({ ...f, key: false, p: true });
-        bloomPending = 0;
-      }
+    if (bloomPending && i === bloomAt) {                      // the chosen motion frame: repeat it
+      for (let b = 0; b < bloomPending; b++) out.push({ ...f, key: false, p: true });
+      bloomPending = 0; bloomAt = -1;
     }
   }
   return {

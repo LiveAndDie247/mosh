@@ -40,9 +40,11 @@ export function searchGifs(q, vibe = "") {
   return shuffle(hits);
 }
 
-// A random GIF, from one vibe if given; `except` is never returned
-export function randomGif(except = null, vibe = "") {
-  const all = (index?.gifs || []).filter(g => !vibe || g.v === vibe);
+// A random GIF, from one vibe if given; `except` is never returned. `minFrames`: prefer GIFs
+// with at least that many frames (ones that actually move), falling back to any if none qualify.
+export function randomGif(except = null, vibe = "", minFrames = 0) {
+  let all = (index?.gifs || []).filter(g => !vibe || g.v === vibe);
+  if (minFrames > 0) { const moving = all.filter(g => (g.f || 0) >= minFrames); if (moving.length >= 3) all = moving; }
   if (!all.length) return null;
   for (let i = 0; i < 20; i++) { const g = all[(Math.random() * all.length) | 0]; if (g !== except) return g; }
   return all[0];

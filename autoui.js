@@ -107,9 +107,10 @@ export function initAuto(root, d) {
     if (!n) return [];
     const idx = await loadIndex(), out = [], seen = new Set();
     let done = 0;
+    const minFrames = STYLES[s.style]?.moving || 0;     // melt styles want GIFs that actually move
     const grab = async () => {
       while (out.length < n) {
-        const g = randomGif(null, s.vibe === "mix" ? "" : s.vibe);
+        const g = randomGif(null, s.vibe === "mix" ? "" : s.vibe, minFrames);
         if (!g || seen.has(g.id)) { if (seen.size >= idx.count) return; continue; }
         seen.add(g.id);
         try {

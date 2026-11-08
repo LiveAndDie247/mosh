@@ -3,7 +3,7 @@
 //   plan → write the sources → autoEncodeArgs (every segment to one MPEG-4 AVI, a keyframe at
 //   each cut) → moshChain (delete / bloom / soup / keep each keyframe) → decodeArgs (+ the song).
 // Pure planning (planAuto) is separate from running (runAuto), so it can be tested under Node.
-import { autoEncodeArgs, chainStarts, decodeArgs, keepColorVf, RATIOS, FPS, DRIFTS } from "./pipeline.js";
+import { autoEncodeArgs, chainStarts, decodeArgs, keepColorVf, RATIOS, FPS, DRIFTS, PUSHES } from "./pipeline.js";
 import { moshChain } from "./mosh.js";
 
 // Styles: how cuts are joined, how long segments are (in beats), how hard blooms are.
@@ -16,15 +16,20 @@ import { moshChain } from "./mosh.js";
 // so every join drags the previous picture into a zoom / spin / pan. That is the reference vortex.
 // The smooth ones. No pan (it tears) and no zoomout: zooming OUT reveals new pixels at the edges,
 // which get painted in clean and rebuild the picture. Zoom in / spin / spiral only ever re-use pixels.
-const SWIRL = ["zoomin", "zoomin", "spiral", "spiralr", "spin"];      // zoom-in twice: the radial streaks
+// `moving`: prefer GIFs with at least this many frames (the index's `f`), so a picture that bleeds
+// in brings some movement of its own with it.
 export const STYLES = {
-  // VORTEX: the reference melt, at the reference's pace: a few long arcs. Each GIF plays once under
-  // a slow drift so its frames bleed through the previous swirl (the pictures sink into each other);
-  // then the bloom repeats one pure-drift frame for seconds and the swirl grows. Now and then a
-  // picture lands clean (cut) and the arc starts over, like the reference's opening.
-  VORTEX: { joins: [["bloom", 8], ["mosh", 1], ["cut", 1]], beats: [12, 16, 20], bloom: [90, 210], firstBeats: 2, drift: SWIRL, bleed: true },
-  // MELT: same, but every drift (pans and zoom-outs too) and more soup: rougher, more alive
-  MELT:   { joins: [["bloom", 5], ["mosh", 3], ["soup", 1]], beats: [3, 4, 6], bloom: [16, 40], firstBeats: 2, drift: DRIFTS },
+  // VORTEX: the reference melt at the reference's pace: a few long arcs. Each GIF plays once under
+  // a slow push-in (no rotation: that reads as a picture turning), so its own frames bleed through
+  // the previous picture (the pictures sink into each other); then the bloom repeats one pure-push
+  // frame for seconds and the picture melts outward. Now and then a picture lands clean (cut) and
+  // the arc starts over, like the reference's opening.
+  VORTEX:  { joins: [["bloom", 8], ["mosh", 1], ["cut", 1]], beats: [12, 16, 20], bloom: [90, 210], firstBeats: 2, drift: PUSHES, bleed: true, moving: 12 },
+  // MELT: the same, shorter arcs, a little soup: rougher, more alive
+  MELT:    { joins: [["bloom", 5], ["mosh", 3], ["soup", 1]], beats: [4, 6, 8], bloom: [40, 110], firstBeats: 2, drift: PUSHES, bleed: true, moving: 12 },
+  // NATURAL: no push at all, only the clips' own motion (mosh.js pickBloom picks a real motion
+  // frame to repeat). GIFs are grainy, so this is the speckle mosh, not the smooth melt.
+  NATURAL: { joins: [["bloom", 8], ["mosh", 1], ["cut", 1]], beats: [8, 12, 16], bloom: [90, 210], firstBeats: 2, skip: 10, moving: 20 },
   SMEAR:  { joins: [["mosh", 5], ["bloom", 3], ["cut", 1]], beats: [2, 3, 4, 6], bloom: [10, 24] },
   CHAOS:  { joins: [["mosh", 4], ["bloom", 3], ["soup", 2], ["cut", 1]], beats: [1, 2, 2, 4], bloom: [8, 20] },
   CLEAN:  { joins: [["cut", 5], ["mosh", 4], ["bloom", 1]], beats: [4, 4, 8], bloom: [6, 14] },
@@ -71,14 +76,15 @@ export function planAuto({ seconds = 60, bpm = 120, style = "SMEAR", pool, seed 
     const len = frames / FPS;
     const ss = s.kind === "video" && s.duration > len + 0.2 ? +(rnd() * (s.duration - len)).toFixed(2) : 0;
     const join = segs.length ? weighted(rnd, st.joins) : "cut";
-    // `bleed`: the source plays through first (a GIF's own frames paint it in through the previous
-    // swirl), the bloom then repeats a pure-drift frame after that: skip past the bleed-in
+    // `bleed` (DRIFT): the source plays through first, the bloom then repeats a pure-drift frame
+    // after that. Otherwise `skip` just leaves the first few motion frames alone so the picture
+    // can start bleeding in before one of its motion frames gets repeated.
     const playFrames = Math.min(Math.round((s.duration || 2) * FPS), frames - 20);
-    const minKeep = st.bleed ? Math.max(8, playFrames + 20) : 8;
+    const minKeep = st.bleed ? Math.max(8, playFrames + 20) : Math.max(8, (st.skip || 0) + 12);
     // a BLOOM adds `count` repeated frames: take them out of the segment so the total stays exact
     const count = join === "bloom" ? Math.min(pick(rnd, st.bloom), frames - minKeep) : 0;
     const j = join === "bloom" && count < 2 ? "mosh" : join;
-    const skip = j === "bloom" && st.bleed ? Math.max(0, playFrames + 6) : 0;
+    const skip = j !== "bloom" ? 0 : st.bleed ? Math.max(0, playFrames + 6) : (st.skip || 0);
     // every join except CUT deletes that segment's keyframe (one frame): encode one extra
     const drift = st.drift ? pick(rnd, st.drift) : null;
     segs.push({ src, frames: frames - Math.max(0, count) + (j === "cut" ? 0 : 1), ss, join: j, count, skip, drift, still: !!st.still });
